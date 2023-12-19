@@ -1,5 +1,6 @@
 import numpy as np
 
+import ipdb
 
 # Code below modified from 
 # https://stackoverflow.com/questions/32791911/fast-calculation-of-pareto-front-in-python
@@ -29,14 +30,10 @@ def get_pareto_front(costs, return_mask = False):
         return is_efficient
     
 
-# Function to provide new individuals through random mating
-
-def mate_individuals(individuals, out_num=100, rng=None):
-    '''
-    individuals: Dict[Tuple[int], Individual]
-    '''
-
-    # Convert RNG to a np RNG state
-    if(rng is None or isinstance(rng, int)):
-        rng = np.random.default_rng(rng)
+def softmax(x):
+    # Softmax implementation in numpy
+    if(x.size == 0):
+        return np.array([])
     
+    numer = np.exp(x - x.max())
+    return numer / numer.sum()

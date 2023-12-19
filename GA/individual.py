@@ -1,6 +1,7 @@
 from typing import List
 
 from .chromosome import Chromosome
+from .utils import softmax
 
 from sklearn.model_selection import train_test_split
 import numpy as np
@@ -25,7 +26,19 @@ class Individual:
     
     def get_scaled_coef_weights(self, X):
         # Absolute value of coefficient scaled by feature mean value
-        return self.fitted_model.coef_ * X.mean(axis=0)
+        # using softmax function implemented in numpy
+
+        coef_weights_by_chr = []
+        scaled_weights = np.abs(self.fitted_model.coef_).sum(axis=0) * X.mean(axis=0)
+
+        # Note, we need to split by chromosome lengths and consider each
+        # separately (features differently than feature interactions)
+        prev_len = 0
+        for chr_len in self.get_chr_sizes():
+            coef_weights_by_chr.append(softmax(scaled_weights[prev_len:chr_len+prev_len]))
+            prev_len += chr_len
+
+        return coef_weights_by_chr
     
     def evaluate(self, X, y, model, score_func):
         if(self.evaluated):
@@ -47,7 +60,7 @@ class Individual:
         
 
     def subset_construct_features(self, X):
-        X_feats = [chr.get_features(X) for chr in self.chromosomes]
+        X_feats = [chr.subset_data(X) for chr in self.chromosomes]
         return np.concatenate(X_feats, axis=-1)
 
     def get_stats(self):
@@ -56,3 +69,9 @@ class Individual:
     def __repr__(self):
         chr_string = '\n'.join(repr(chr) for chr in self.chromosomes).replace('\n', '\n\t\t')
         return f"Individual(\n\thash: {self.hash},\n\tstats: {self.stats},\n\tchromosomes:\n\t\t{chr_string}, \n)"
+    
+    def get_chr_features(self, masks=None):
+        if(masks is None):
+            return [chr.features for chr in self.chromosomes]
+        else:
+            return [chr.features[mask] for chr, mask in zip(self.chromosomes, masks)]

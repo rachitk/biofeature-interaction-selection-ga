@@ -24,6 +24,9 @@ class Population:
         self.interaction_num = interaction_num
         self.rng = np.random.default_rng(self.base_seed)
 
+        # TODO: add blank individual (no features whatsoever)
+        # to set of evaluated individuals
+
     def seed_population(self, num_individuals=1000,
                         initial_sizes=10, seed=None,
                         add_now=True):
@@ -60,6 +63,8 @@ class Population:
         # Add new individuals to current set, but maintaining current individuals who
         # are already in the new individuals made
         self.current_individuals = {**new_individuals, **self.current_individuals}
+        # equivalent to, in Python 3.9:
+        # self.current_individuals = new_individuals | self.current_individuals
 
 
     def evaluate_current_individuals(self, X, y, problem_type='regression'):
@@ -122,6 +127,7 @@ class Population:
         new_indiv_num = int(0.2 * num_individuals)
         mate_num = int(0.3 * num_individuals)
         mutate_num = int(0.5 * num_individuals)
+        # TODO: atavism_prop = 0.01 (bring back individuals who failed as possible mates)
 
         # Get the top individuals in the population
         # and then randomly mate/mutate them all
@@ -129,10 +135,17 @@ class Population:
         pareto_indivs = [self.evaluated_individuals[pareto_hash] 
                          for pareto_hash in pareto_indiv_hashes]
 
-        ipdb.set_trace()
+        # Perform mating of best pareto individuals 
+        # TODO: maybe mix in some random evaluated individuals
+        # Will try to make mate_num number of children
+        # but may produce some nonunique children who will be merged
+        child_indivs = self.mate_individuals(pareto_indivs, attempt_num=mate_num, rng=self.rng)
 
-        # Perform mating of best pareto individuals
-        
+        # Randomly mutate best pareto individuals
+        # TODO: maybe mix in some random evaluated individuals
+        # Will try to make mutate_num number of mutants
+        # but may again make nonunique mutants that will be merged
+        mutant_indivs = self.mutate_individuals(pareto_indivs, attempt_num=mutate_num, rng=self.rng)
 
         # Clear the population after we've found the pareto dominant ones
         self.current_individuals = {}
@@ -141,4 +154,71 @@ class Population:
         new_rand_indivs = self.seed_population(num_individuals=new_indiv_num, add_now=False)
 
 
+    # Function to provide new individuals through random mating
+    def mate_individuals(self, individuals, attempt_num=100, rng=None):
+        '''
+        individuals: Dict[Tuple[int], Individual]
+        returns child_indivs: Dict[Tuple[int], Individual]
+        '''
 
+        child_indivs = {}
+
+        if(rng is None):
+            rng = self.rng
+        
+        # Select parents to mate
+        pairings = rng.choice(individuals, size=(attempt_num, 2))
+
+        # TODO: Parallelize the below for creating mated people
+        # Can easily dispatch computations to multiple jobs
+        for p1, p2 in pairings:
+            # Get random features from parent 1
+            p1_mask = [rng.uniform(size=csize) < probs for csize, probs in 
+                       zip(p1.get_chr_sizes(), p1.coef_weights)]
+            p1_selected = p1.get_chr_features(p1_mask)
+
+            # Get random features from parent 2
+            p2_mask = [rng.uniform(size=csize) < probs for csize, probs in 
+                       zip(p2.get_chr_sizes(), p2.coef_weights)]
+            p2_selected = p2.get_chr_features(p2_mask)
+
+            # Merge to get new individual
+            child = (Individual([Chromosome(np.concatenate([p1_chr, p2_chr])) 
+                                 for p1_chr, p2_chr in zip(p1_selected, p2_selected)]))
+            
+            child_indivs[child.hash] = child
+
+        return child_indivs
+    
+
+    # Function to provide new individuals through random mutations
+    def mutate_individuals(self, individuals, attempt_num=100, rng=None, 
+                           mutate_fns=[], mutate_probs=[]):
+        '''
+        individuals: Dict[Tuple[int], Individual]
+        returns mutant_indivs: Dict[Tuple[int], Individual]
+        '''
+
+        mutant_indivs = {}
+
+        if(rng is None):
+            rng = self.rng
+        
+        # Select individuals to mutate
+        originals = rng.choice(individuals, size=(attempt_num,))
+
+        # Decide what type of mutation to apply for each individual
+
+
+        # TODO: Parallelize the below for creating mated people
+        # Can easily dispatch computations to multiple jobs
+        for indiv in originals:
+            # Apply mutation to 
+
+            # Merge to get new individual
+            mutant = (Individual([Chromosome(np.concatenate([p1_chr, p2_chr])) 
+                                 for p1_chr, p2_chr in zip(p1_selected, p2_selected)]))
+            
+            mutant_indivs[mutant.hash] = mutant
+
+        return mutant_indivs

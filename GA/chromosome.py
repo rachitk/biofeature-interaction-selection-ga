@@ -16,7 +16,7 @@ class Chromosome:
     def __len__(self):
         return len(self.features)
     
-    def get_features(self, X):
+    def subset_data(self, X):
         # Gets the features from X corresponding to the chromosomes
         # then multiplies along the last dimension to model interactions
         # for each sample (in a vectorized way)
