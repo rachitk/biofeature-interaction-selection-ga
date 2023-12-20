@@ -1,5 +1,7 @@
 import numpy as np
 
+from .utils import softmax
+
 import ipdb
 
 # Class that stores a chromosome
@@ -13,8 +15,11 @@ class Chromosome:
         # Hash based on byte representation
         self.hash: int = hash(self.features.tobytes())
 
+        # Chromosome "depth" of interaction
+        self.depth = self.features.shape[1]
+
     def __len__(self):
-        return len(self.features)
+        return self.features.shape[0]
     
     def subset_data(self, X):
         # Gets the features from X corresponding to the chromosomes

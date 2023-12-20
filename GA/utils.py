@@ -2,6 +2,10 @@ import numpy as np
 
 import ipdb
 
+
+# Set RNG maximum integer for all other files
+RNG_MAX_INT = 2**32 - 1
+
 # Code below modified from 
 # https://stackoverflow.com/questions/32791911/fast-calculation-of-pareto-front-in-python
 def get_pareto_front(costs, return_mask = False):

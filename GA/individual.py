@@ -1,7 +1,7 @@
 from typing import List
 
 from .chromosome import Chromosome
-from .utils import softmax
+from .utils import softmax, RNG_MAX_INT
 
 from sklearn.model_selection import train_test_split
 import numpy as np
@@ -27,9 +27,8 @@ class Individual:
     def get_scaled_coef_weights(self, X):
         # Absolute value of coefficient scaled by feature mean value
         # using softmax function implemented in numpy
-
         coef_weights_by_chr = []
-        scaled_weights = np.abs(self.fitted_model.coef_).sum(axis=0) * X.mean(axis=0)
+        scaled_weights = np.abs(self.fitted_model.coef_).sum(axis=0) * np.abs(X.mean(axis=0))
 
         # Note, we need to split by chromosome lengths and consider each
         # separately (features differently than feature interactions)
@@ -40,12 +39,16 @@ class Individual:
 
         return coef_weights_by_chr
     
-    def evaluate(self, X, y, model, score_func):
+    def evaluate(self, X, y, model, score_func, seed=None):
         if(self.evaluated):
             return
+        
+        rng = np.random.default_rng(seed)
+        sklearn_seed = rng.integers(RNG_MAX_INT)
 
         subset_X = self.subset_construct_features(X)
-        X_train, X_test, y_train, y_test = train_test_split(subset_X, y)
+        X_train, X_test, y_train, y_test = train_test_split(subset_X, y,
+                                                            random_state=sklearn_seed)
 
         model = model.fit(X_train, y_train)
         y_pred = model.predict(X_test)
