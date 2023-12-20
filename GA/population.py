@@ -88,7 +88,7 @@ class Population:
         # Create individuals with the requested chromosomes
         def create_indiv_job(rng_seed):
             rng_seed = np.random.default_rng(rng_seed)
-            return Individual([Chromosome(rng.integers(self.num_features, 
+            return Individual([Chromosome(rng_seed.integers(self.num_features, 
                                               size=(initial_sizes[chr_num], chr_num+1))) 
                                               for chr_num in range(self.interaction_num)])
         
@@ -101,6 +101,8 @@ class Population:
         #                                       for chr_num in range(self.interaction_num)])
         #                         for _ in range(num_individuals)]
         
+        ipdb.set_trace()
+
         indiv_dict = {indiv.hash: indiv for indiv in indiv_list}
 
         # Add new individuals now if requested, otherwise return them
