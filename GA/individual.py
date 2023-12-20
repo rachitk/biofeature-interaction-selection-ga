@@ -6,6 +6,9 @@ from .utils import softmax, RNG_MAX_INT
 from sklearn.model_selection import train_test_split
 import numpy as np
 
+from sklearn.utils._testing import ignore_warnings
+from sklearn.exceptions import ConvergenceWarning
+
 import ipdb
 
 
@@ -39,6 +42,7 @@ class Individual:
 
         return coef_weights_by_chr
     
+    @ignore_warnings(category=ConvergenceWarning)
     def evaluate(self, X, y, model, score_func, seed=None):
         if(self.evaluated):
             return

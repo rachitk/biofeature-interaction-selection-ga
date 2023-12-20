@@ -97,7 +97,8 @@ class Population:
             'classification': LogisticRegressionCV(solver='saga', 
                                                    penalty='elasticnet',
                                                    l1_ratios=[.1, .5, .9, .99, 1],
-                                                   random_state=model_seed)
+                                                   random_state=model_seed,
+                                                   max_iter=1000)
         }
 
         score_funcs = {
