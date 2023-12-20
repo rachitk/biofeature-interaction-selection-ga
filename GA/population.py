@@ -29,8 +29,8 @@ class Population:
         # Add individual with no features in any of the chromosome
         # to the set of evaluated individuals to avoid having issues
         # when trying to evaluate (since it has no features)
-        empty_individual = Individual([Chromosome(np.array([]))
-                                        for _ in range(self.interaction_num)])
+        empty_individual = Individual([Chromosome(np.empty((0, chr_num+1), dtype=int))
+                                        for chr_num in range(self.interaction_num)])
         
         # Set its stats to be the worst possible
         # with chromosome lengths of infinity and score of infinity
@@ -151,6 +151,7 @@ class Population:
         # perhaps also do this if the number of pareto individuals is small
         # relative to the number of new individuals to be made (to reintroduce
         # diversity into the population)
+        # Note that we shouldn't introduce the empty individual here
 
         # Get the top individuals in the population
         # and then randomly mate/mutate them all
@@ -178,8 +179,6 @@ class Population:
                                     **mutant_indivs,
                                     **new_rand_indivs}
                 
-        ipdb.set_trace()
-
 
     # Function to provide new individuals through random mating
     def mate_individuals(self, individuals, attempt_num=100, seed=None):
