@@ -69,6 +69,8 @@ class Individual:
         self.stats = np.array([np.log10(self.get_total_size()), 
                                -self.score])
         
+        return self
+        
 
     def subset_construct_features(self, X):
         X_feats = [chr.subset_data(X) for chr in self.chromosomes]

@@ -9,15 +9,36 @@ import numpy as np
 from sklearn.linear_model import ElasticNetCV, LogisticRegressionCV
 from sklearn.base import clone
 from sklearn.metrics import roc_auc_score, mean_squared_error
+
+from joblib import Parallel, delayed
+from tqdm import tqdm
+
 import ipdb
 
+
+# Make TQDM dependency optional
+try:
+    from tqdm import tqdm
+    # TODO: do we need to check what backend is in use?
+    # or will joblib always be able to return a generator?
+    def print(*args, **kwargs):
+        try:
+            return tqdm.write(*args, **kwargs)
+        except TypeError:
+            args = [str(arg) for arg in args]
+            return tqdm.write(*args, **kwargs)
+    tqdm_avail = True
+except ImportError:
+    def tqdm(iterator, *args, **kwargs):
+        return iterator
+    tqdm_avail = False
 
 
 # Class that stores an entire population of individuals
 # Performs the GA steps (mutating, mating, etc.)
 # (TODO: Maybe move the other GA steps to another class)
 class Population:
-    def __init__(self, base_seed=None, num_features=100, interaction_num=2):
+    def __init__(self, base_seed=None, num_features=100, interaction_num=2, ):
         self.current_individuals: Dict[Tuple[int], Individual] = {}
         self.evaluated_individuals: Dict[Tuple[int], Individual] = {}
         self.pareto_individual_hashes: List[Tuple[int]] = []
@@ -53,16 +74,32 @@ class Population:
             raise ValueError(f"Number of initial sizes passed to population was {len(initial_sizes)}, "
                              f"but expected {self.interaction_num} or a single integer!")
 
+        for size in initial_sizes:
+            if not isinstance(size, int):
+                raise ValueError(f"Initial size {size} in {initial_sizes} not an integer!")
+
         # RNG of this seed is based on the passed seed value only if one is passed
         # otherwise, will use the base population RNG (which may have progressed since instantiation)
         rng = np.random.default_rng(seed) if seed is not None else self.rng
 
+        rng_seeds = rng.integers(RNG_MAX_INT, size=(num_individuals,))
+
         # TODO: Parallelize the creation of individuals here
         # Create individuals with the requested chromosomes
-        indiv_list = [Individual([Chromosome(rng.integers(self.num_features, 
+        def create_indiv_job(rng_seed):
+            rng_seed = np.random.default_rng(rng_seed)
+            return Individual([Chromosome(rng.integers(self.num_features, 
                                               size=(initial_sizes[chr_num], chr_num+1))) 
                                               for chr_num in range(self.interaction_num)])
-                                for _ in range(num_individuals)]
+        
+        indiv_list = [r for r in tqdm(Parallel(return_as='generator', n_jobs=-1)(delayed(create_indiv_job)(rng_seed)
+                                                                        for rng_seed in rng_seeds),
+                                        total=num_individuals, leave=False, desc="Seeding")]
+        
+        # indiv_list = [Individual([Chromosome(rng.integers(self.num_features, 
+        #                                       size=(initial_sizes[chr_num], chr_num+1))) 
+        #                                       for chr_num in range(self.interaction_num)])
+        #                         for _ in range(num_individuals)]
         
         indiv_dict = {indiv.hash: indiv for indiv in indiv_list}
 
@@ -114,14 +151,26 @@ class Population:
         if(model_class is None):
             raise ValueError(f"{problem_type} not supported. Only supports `classification` or `regression`.")
 
-        # TODO: Definitely set up parallel execution here
-        # as we can evaluate all individuals simultaneously
-        for i, (hash_i, indiv) in enumerate(self.current_individuals.items()):
-            if(hash_i in self.evaluated_individuals):
-                self.current_individuals[hash_i] = self.evaluated_individuals[hash_i]
-                continue
-            
-            indiv.evaluate(X, y, clone(model_class), score_func, rng_seeds[i])
+        # Replace already-evaluated individuals with their evaluated versions
+        dupe_hashes = self.current_individuals.keys() & self.evaluated_individuals.keys()
+        for dupe_hash in dupe_hashes:
+            del self.current_individuals[dupe_hash]
+
+        # Parallelized evaluation scheme
+        # TODO: Allow user to define number of jobs (1 = no parallel)
+        def eval_func_job(indiv, rng_seed):
+            return indiv.evaluate(X, y, clone(model_class), score_func, rng_seed)
+
+        eval_indivs = [r for r in tqdm(Parallel(return_as='generator', n_jobs=-1)(delayed(eval_func_job)(indiv, rng_seed) 
+                                                                        for indiv, rng_seed in 
+                                                                        zip(self.current_individuals.values(), rng_seeds)), 
+                                        total=len(self.current_individuals), leave=False, desc="Evaluation")]
+
+        # Assign (parallelization means operations not done in-place on original objects)
+        self.current_individuals = {indiv.hash: indiv for indiv in eval_indivs}
+
+        # for i, indiv in enumerate(self.current_individuals.values()):
+        #     indiv = indiv.evaluate(X, y, clone(model_class), score_func, rng_seeds[i])
 
         self.evaluated_individuals = {**self.current_individuals, **self.evaluated_individuals}
 
@@ -180,6 +229,8 @@ class Population:
         self.current_individuals = {**child_indivs,
                                     **mutant_indivs,
                                     **new_rand_indivs}
+
+        return self.current_individuals
                 
 
     # Function to provide new individuals through random mating
@@ -188,8 +239,6 @@ class Population:
         individuals: Dict[Tuple[int], Individual]
         returns child_indivs: Dict[Tuple[int], Individual]
         '''
-
-        child_indivs = {}
 
         rng = np.random.default_rng(seed) if seed is not None else self.rng
         
@@ -200,12 +249,14 @@ class Population:
         # (so that when dispatched, we can ensure determinism)
         rng_seeds = rng.integers(RNG_MAX_INT, size=(attempt_num,))
 
-
         # TODO: Parallelize the below for creating mated people
         # Can easily dispatch computations to multiple jobs
         # Consider moving the below to a function elsewhere 
         # (and maybe have multiple mating options)
-        for (p1, p2), pair_rng in zip(pairings, rng_seeds):
+
+        # Parallelized mating scheme
+        # TODO: Allow user to define number of jobs (1 = no parallel)
+        def mate_func_job(p1, p2, pair_rng):
             pair_rng = np.random.default_rng(pair_rng)
             # Get random features from parent 1
             p1_mask = [pair_rng.uniform(size=csize) < probs for csize, probs in 
@@ -218,10 +269,32 @@ class Population:
             p2_selected = p2.get_chr_features(p2_mask)
 
             # Merge to get new individual
-            child = (Individual([Chromosome(np.concatenate([p1_chr, p2_chr])) 
-                                 for p1_chr, p2_chr in zip(p1_selected, p2_selected)]))
+            return Individual([Chromosome(np.concatenate([p1_chr, p2_chr])) 
+                               for p1_chr, p2_chr in zip(p1_selected, p2_selected)])
+
+        child_indivs = [r for r in tqdm(Parallel(return_as='generator', n_jobs=-1)(delayed(mate_func_job)(p1, p2, pair_rng) 
+                                                       for (p1, p2), pair_rng in zip(pairings, rng_seeds)),
+                                        total=len(pairings), leave=False, desc="Mating")]
+
+        # for (p1, p2), pair_rng in zip(pairings, rng_seeds):
+        #     pair_rng = np.random.default_rng(pair_rng)
+        #     # Get random features from parent 1
+        #     p1_mask = [pair_rng.uniform(size=csize) < probs for csize, probs in 
+        #                zip(p1.get_chr_sizes(), p1.coef_weights)]
+        #     p1_selected = p1.get_chr_features(p1_mask)
+
+        #     # Get random features from parent 2
+        #     p2_mask = [pair_rng.uniform(size=csize) < probs for csize, probs in 
+        #                zip(p2.get_chr_sizes(), p2.coef_weights)]
+        #     p2_selected = p2.get_chr_features(p2_mask)
+
+        #     # Merge to get new individual
+        #     child = (Individual([Chromosome(np.concatenate([p1_chr, p2_chr])) 
+        #                          for p1_chr, p2_chr in zip(p1_selected, p2_selected)]))
             
-            child_indivs[child.hash] = child
+        #     child_indivs[child.hash] = child
+
+        child_indivs = {child.hash: child for child in child_indivs}
 
         return child_indivs
     
@@ -234,8 +307,6 @@ class Population:
         individuals: Dict[Tuple[int], Individual]
         returns mutant_indivs: Dict[Tuple[int], Individual]
         '''
-
-        mutant_indivs = {}
 
         rng = np.random.default_rng(seed) if seed is not None else self.rng
 
@@ -250,13 +321,22 @@ class Population:
         rng_seeds = rng.integers(RNG_MAX_INT, size=(attempt_num,))
 
 
-        # TODO: Parallelize the below for creating mated people
+        # TODO: Parallelize the below for creating mutated people
         # Can easily dispatch computations to multiple jobs
-        for indiv, mutation_fn, mute_rng in zip(originals, mutations, rng_seeds):
-            # Apply mutation to individual
-            mutant = mutation_fn(indiv, self.get_population_metadata(),
-                                 mute_rng)
-            mutant_indivs[mutant.hash] = mutant
+        def mutate_func_job(indiv, mutation_fn, mute_rng):
+            return mutation_fn(indiv, self.get_population_metadata(), mute_rng)
+
+        mutant_indivs = [r for r in tqdm(Parallel(return_as='generator', n_jobs=-1)(delayed(mutate_func_job)(indiv, mutation_fn, mute_rng) 
+                                                       for indiv, mutation_fn, mute_rng in zip(originals, mutations, rng_seeds)),
+                                        total=len(originals), leave=False, desc="Mutation")]
+
+        # for indiv, mutation_fn, mute_rng in zip(originals, mutations, rng_seeds):
+        #     # Apply mutation to individual
+        #     mutant = mutation_fn(indiv, self.get_population_metadata(),
+        #                          mute_rng)
+        #     mutant_indivs[mutant.hash] = mutant
+
+        mutant_indivs = {mutant.hash: mutant for mutant in mutant_indivs}
 
         return mutant_indivs
     
