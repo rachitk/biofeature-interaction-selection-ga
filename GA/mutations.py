@@ -20,7 +20,7 @@ def add_feature(individual, pop_metadata, rng_seed=None, scale_weight=None):
     # with an additional scaling if chromosome depth > 1
     rng = np.random.default_rng(rng_seed)
 
-    # Select a random chromosome (TODO: maybe scale by length of chromosome or prevent selecting empty?)
+    # Select a random chromosome (TODO: maybe scale by length of chromosome)
     sel_chr_num = rng.choice(pop_metadata['interaction_num'])
     chr_others = [i for i in range(pop_metadata['interaction_num']) if i != sel_chr_num]
     sel_chr = individual.chromosomes[sel_chr_num]
@@ -47,8 +47,11 @@ def remove_feature(individual, pop_metadata, rng_seed=None, scale_weight=None):
     # for the chromosome that is selected
     rng = np.random.default_rng(rng_seed)
 
-    # Select a random chromosome (TODO: maybe scale by length of chromosome or prevent selecting empty?)
-    sel_chr_num = rng.choice(pop_metadata['interaction_num'])
+    # Prevent selecting empty chromosomes
+    nonempty_chrs = [i for i in range(pop_metadata['interaction_num']) if len(individual.chromosomes[i]) > 0]
+
+    # Select a random chromosome (TODO: maybe scale by length of chromosome)
+    sel_chr_num = rng.choice(nonempty_chrs)
     chr_others = [i for i in range(pop_metadata['interaction_num']) if i != sel_chr_num]
     sel_chr = individual.chromosomes[sel_chr_num]
 
@@ -88,14 +91,17 @@ def alter_feature_depth(individual, pop_metadata, rng_seed=None, scale_weight=No
     # Convert a feature to an interaction or vice-versa
     rng = np.random.default_rng(rng_seed)
 
+    # Prevent selecting empty chromosomes
+    nonempty_chrs = [i for i in range(pop_metadata['interaction_num']) if len(individual.chromosomes[i]) > 0]
+
     # If there are less than two chromosomes to select, then instead
     # do an add/remove mutation with equal probability
-    if(pop_metadata['interaction_num'] == 1):
+    if(len(nonempty_chrs) < 2):
         alt_mutate = rng.choice([add_feature, remove_feature])
         return alt_mutate(individual, pop_metadata, rng_seed, scale_weight)
 
     # Select two random chromosomes (TODO: maybe scale by length of chromosome or prevent selecting empty?)
-    sel_chr_nums = rng.choice(pop_metadata['interaction_num'], size=(2,), replace=False)
+    sel_chr_nums = rng.choice(nonempty_chrs, size=(2,), replace=False)
     src_chr = individual.chromosomes[sel_chr_nums[0]]
     dst_chr = individual.chromosomes[sel_chr_nums[1]]
     chr_others = [i for i in range(pop_metadata['interaction_num']) if i not in sel_chr_nums]
