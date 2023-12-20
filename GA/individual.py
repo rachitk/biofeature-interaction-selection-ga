@@ -58,8 +58,12 @@ class Individual:
         self.evaluated = True
         self.coef_weights = self.get_scaled_coef_weights(subset_X)
 
-        self.stats = np.array([*self.get_chr_sizes(), 
-                                   -self.score])
+        # Note, this is currently broken if we use MSE as the score function
+        # TODO: fix for regression problems which do use MSE (make them use negative MSE)
+        # self.stats = np.array([*np.log10(np.array(self.get_chr_sizes())+1), 
+        #                            -self.score])
+        self.stats = np.array([np.log10(self.get_total_size()), 
+                               -self.score])
         
 
     def subset_construct_features(self, X):

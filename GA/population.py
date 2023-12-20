@@ -34,7 +34,8 @@ class Population:
         
         # Set its stats to be the worst possible
         # with chromosome lengths of infinity and score of infinity
-        empty_individual.stats = np.array([np.inf for _ in range(interaction_num+1)])
+        # empty_individual.stats = np.array([np.inf for _ in range(interaction_num+1)])
+        empty_individual.stats = np.array([np.inf, np.inf])
         empty_individual.coef_weights = [np.array([]) for _ in range(interaction_num)]
         empty_individual.evaluated = True
         self.evaluated_individuals[empty_individual.hash] = empty_individual
