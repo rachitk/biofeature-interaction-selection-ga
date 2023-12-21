@@ -24,11 +24,12 @@ except ImportError:
 n_samps = 2000
 n_feats = 1000
 n_interactions = 2
-num_individuals = 100
+num_start_indiv = 500
+num_individuals_per_gen = 250
 
-n_generations = 100
+n_generations = 1000
 init_seed = 9
-gen_print_freq = 10
+gen_print_freq = 5
 
 
 X, y = make_classification(n_samps, n_feats, n_informative=10,
@@ -39,7 +40,7 @@ X_train, X_test, y_train, y_test = train_test_split(X, y,
 # Make and initially seed population (outside loop)
 ga_pop = Population(base_seed=9, num_features=n_feats, 
                     interaction_num=n_interactions)
-ga_pop.seed_population(seed=9, num_individuals=num_individuals,
+ga_pop.seed_population(num_individuals=num_start_indiv,
                        initial_sizes=[int(n_feats/10),int(n_feats/100)])
 
 # Evaluate individuals in the population and create new individuals
@@ -49,15 +50,15 @@ for gen_num in tqdm(range(n_generations), desc='Generations'):
         print(f"Starting Generation {gen_num+1} / {n_generations} ... ", end='', flush=True)
     
     ga_pop.evaluate_current_individuals(X, y, 'classification')
-    ga_pop.create_new_generation(num_individuals)
+    ga_pop.create_new_generation(num_individuals_per_gen)
     
     if(not tqdm_avail):
         print(f"Completed!", flush=True)
 
-    if gen_num % gen_print_freq:
+    if gen_num % gen_print_freq == 0:
         best_pareto_hashes = ga_pop.pareto_individual_hashes
         str_rep = repr(ga_pop.get_evaluated_individuals_from_hash(best_pareto_hashes)).replace('\n', '\n\t')
-        print(f"\tBest Individuals: {str_rep}")
+        print(f"Best Individuals (Generation {gen_num}):\t{str_rep}")
 
 # Evaluate the final generation of individuals
 ga_pop.evaluate_current_individuals(X, y, 'classification')

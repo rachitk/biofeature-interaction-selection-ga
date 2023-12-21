@@ -6,8 +6,20 @@ import ipdb
 # Set RNG maximum integer for all other files
 RNG_MAX_INT = 2**32 - 1
 
+# Set Joblib verbosity based on whether TQDM is available
+try:
+    from tqdm import tqdm
+    tqdm_avail = True
+except ImportError:
+    tqdm_avail = False
+    
+JL_VERBOSITY = not tqdm_avail
+
 # Code below modified from 
 # https://stackoverflow.com/questions/32791911/fast-calculation-of-pareto-front-in-python
+# TODO: allow a threshold/cutoff for considering dominated
+# since accuracy is a bit stochastic based on the train/test/val split
+# (or maybe synchronize the train/test/val split entirely)
 def get_pareto_front(costs, return_mask = False):
     """
     Find the pareto-efficient points

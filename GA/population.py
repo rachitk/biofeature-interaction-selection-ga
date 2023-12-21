@@ -2,7 +2,7 @@ from typing import Dict, List, Tuple
 
 from .individual import Individual
 from .chromosome import Chromosome
-from .utils import get_pareto_front, RNG_MAX_INT
+from .utils import get_pareto_front, RNG_MAX_INT, JL_VERBOSITY
 from .mutations import add_feature, remove_feature, alter_feature_depth
 
 import numpy as np
@@ -11,7 +11,6 @@ from sklearn.base import clone
 from sklearn.metrics import roc_auc_score, mean_squared_error
 
 from joblib import Parallel, delayed
-from tqdm import tqdm
 
 import ipdb
 
@@ -62,21 +61,22 @@ class Population:
         self.evaluated_individuals[empty_individual.hash] = empty_individual
 
 
+    # TODO: Go through and see what the bottleneck is here - since this takes a lot longer
+    # than would be expected for the number of individuals being created
     def seed_population(self, num_individuals=1000,
-                        initial_sizes=10, seed=None,
+                        initial_sizes=None, seed=None,
                         add_now=True):
         '''Adds individuals to the population based on requested parameters'''
 
-        if isinstance(initial_sizes, int):
+        if initial_sizes is None:
+            initial_sizes = [int(self.num_features/10), int(self.num_features/100)]
+
+        elif isinstance(initial_sizes, int):
             initial_sizes = [initial_sizes for _ in range(self.interaction_num)]
 
-        if(len(initial_sizes) != self.interaction_num):
+        elif len(initial_sizes) != self.interaction_num:
             raise ValueError(f"Number of initial sizes passed to population was {len(initial_sizes)}, "
                              f"but expected {self.interaction_num} or a single integer!")
-
-        for size in initial_sizes:
-            if not isinstance(size, int):
-                raise ValueError(f"Initial size {size} in {initial_sizes} not an integer!")
 
         # RNG of this seed is based on the passed seed value only if one is passed
         # otherwise, will use the base population RNG (which may have progressed since instantiation)
@@ -92,8 +92,9 @@ class Population:
                                               size=(initial_sizes[chr_num], chr_num+1))) 
                                               for chr_num in range(self.interaction_num)])
         
-        indiv_list = [r for r in tqdm(Parallel(return_as='generator', n_jobs=-1)(delayed(create_indiv_job)(rng_seed)
-                                                                        for rng_seed in rng_seeds),
+        # Use shared memory here to avoid serializing the original object
+        indiv_list = [r for r in tqdm(Parallel(require='sharedmem', return_as='generator', n_jobs=-1, verbose=JL_VERBOSITY)
+                                      (delayed(create_indiv_job)(rng_seed) for rng_seed in rng_seeds),
                                         total=num_individuals, leave=False, desc="Seeding")]
         
         # indiv_list = [Individual([Chromosome(rng.integers(self.num_features, 
@@ -101,8 +102,6 @@ class Population:
         #                                       for chr_num in range(self.interaction_num)])
         #                         for _ in range(num_individuals)]
         
-        ipdb.set_trace()
-
         indiv_dict = {indiv.hash: indiv for indiv in indiv_list}
 
         # Add new individuals now if requested, otherwise return them
@@ -163,7 +162,7 @@ class Population:
         def eval_func_job(indiv, rng_seed):
             return indiv.evaluate(X, y, clone(model_class), score_func, rng_seed)
 
-        eval_indivs = [r for r in tqdm(Parallel(return_as='generator', n_jobs=-1)(delayed(eval_func_job)(indiv, rng_seed) 
+        eval_indivs = [r for r in tqdm(Parallel(return_as='generator', n_jobs=-1, verbose=JL_VERBOSITY)(delayed(eval_func_job)(indiv, rng_seed) 
                                                                         for indiv, rng_seed in 
                                                                         zip(self.current_individuals.values(), rng_seeds)), 
                                         total=len(self.current_individuals), leave=False, desc="Evaluation")]
@@ -206,6 +205,9 @@ class Population:
         # diversity into the population)
         # Note that we shouldn't introduce the empty individual here
 
+        # Create some random individuals to include
+        new_rand_indivs = self.seed_population(num_individuals=new_indiv_num, add_now=False, seed=self.rng)
+
         # Get the top individuals in the population
         # and then randomly mate/mutate them all
         pareto_indiv_hashes = self.get_pareto_best_individuals()
@@ -224,13 +226,10 @@ class Population:
         # but may again make nonunique mutants that will be merged
         mutant_indivs = self.mutate_individuals(pareto_indivs, attempt_num=mutate_num, seed=self.rng)
 
-        # Create some random individuals to include
-        new_rand_indivs = self.seed_population(num_individuals=new_indiv_num, add_now=False, seed=self.rng)
-
         # Set the current generation to the new set of individuals
-        self.current_individuals = {**child_indivs,
-                                    **mutant_indivs,
-                                    **new_rand_indivs}
+        self.current_individuals = {**new_rand_indivs,
+                                    **child_indivs,
+                                    **mutant_indivs}
 
         return self.current_individuals
                 
@@ -274,7 +273,7 @@ class Population:
             return Individual([Chromosome(np.concatenate([p1_chr, p2_chr])) 
                                for p1_chr, p2_chr in zip(p1_selected, p2_selected)])
 
-        child_indivs = [r for r in tqdm(Parallel(return_as='generator', n_jobs=-1)(delayed(mate_func_job)(p1, p2, pair_rng) 
+        child_indivs = [r for r in tqdm(Parallel(return_as='generator', n_jobs=-1, verbose=JL_VERBOSITY)(delayed(mate_func_job)(p1, p2, pair_rng) 
                                                        for (p1, p2), pair_rng in zip(pairings, rng_seeds)),
                                         total=len(pairings), leave=False, desc="Mating")]
 
@@ -322,13 +321,14 @@ class Population:
         # (so that when dispatched, we can ensure determinism)
         rng_seeds = rng.integers(RNG_MAX_INT, size=(attempt_num,))
 
+        pop_metadata = self.get_population_metadata()
 
         # TODO: Parallelize the below for creating mutated people
         # Can easily dispatch computations to multiple jobs
         def mutate_func_job(indiv, mutation_fn, mute_rng):
-            return mutation_fn(indiv, self.get_population_metadata(), mute_rng)
+            return mutation_fn(indiv, pop_metadata, mute_rng)
 
-        mutant_indivs = [r for r in tqdm(Parallel(return_as='generator', n_jobs=-1)(delayed(mutate_func_job)(indiv, mutation_fn, mute_rng) 
+        mutant_indivs = [r for r in tqdm(Parallel(return_as='generator', n_jobs=-1, verbose=JL_VERBOSITY)(delayed(mutate_func_job)(indiv, mutation_fn, mute_rng) 
                                                        for indiv, mutation_fn, mute_rng in zip(originals, mutations, rng_seeds)),
                                         total=len(originals), leave=False, desc="Mutation")]
 
@@ -349,7 +349,7 @@ class Population:
             'num_features': self.num_features,
             'interaction_num': self.interaction_num,
             'rng': self.rng,
-            'evaluated_hashes': list(self.evaluated_individuals.keys())
+            #'evaluated_hashes': list(self.evaluated_individuals.keys())
         }
     
     
