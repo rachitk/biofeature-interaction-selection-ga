@@ -21,18 +21,19 @@ except ImportError:
     tqdm_avail = False
     print("NOTE: TQDM not available. No progress bars will be printed.\n")
 
-n_samps = 2000
-n_feats = 1000
+n_samps = 20000
+n_feats = 3000
+n_informative_feats = 10
 n_interactions = 2
-num_start_indiv = 5000
-num_individuals_per_gen = 1000
+num_start_indiv = 10000
+num_individuals_per_gen = 2000
 
 n_generations = 1000
 init_seed = 9
 gen_print_freq = 5
 
 
-X, y = make_classification(n_samps, n_feats, n_informative=10,
+X, y = make_classification(n_samps, n_feats, n_informative=n_informative_feats,
                            random_state=init_seed)
 X_train, X_test, y_train, y_test = train_test_split(X, y,
                                                     random_state=init_seed)

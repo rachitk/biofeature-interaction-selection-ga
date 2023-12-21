@@ -61,8 +61,6 @@ class Population:
         self.evaluated_individuals[empty_individual.hash] = empty_individual
 
 
-    # TODO: Go through and see what the bottleneck is here - since this takes a lot longer
-    # than would be expected for the number of individuals being created
     def seed_population(self, num_individuals=1000,
                         initial_sizes=None, seed=None,
                         add_now=True):

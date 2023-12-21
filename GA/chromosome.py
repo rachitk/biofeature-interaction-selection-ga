@@ -28,6 +28,6 @@ class Chromosome:
         return X[:, self.features].prod(axis=-1)
     
     def __repr__(self):
-        arr_feat_str = ',\n\t'.join(str(feat) for feat in self.features)
+        arr_feat_str = ', '.join(str(feat) for feat in self.features)
         return f"Chromosome( array([ \n\t{arr_feat_str} ])\n)"
     

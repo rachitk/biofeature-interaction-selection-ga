@@ -12,8 +12,6 @@ import ipdb
 # with an RNG being passed for fixing randomness, and
 # with an optional scaling weight for each feature being passed (TODO)
 
-# TODO: go through and try to optimize/speed up this code substantially
-# (this is the bottleneck for every generation of the GA)
 
 def add_feature(individual, pop_metadata, rng_seed=None, scale_weight=None):
     # Add a feature to an individual

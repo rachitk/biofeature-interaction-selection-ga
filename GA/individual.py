@@ -42,6 +42,9 @@ class Individual:
 
         return coef_weights_by_chr
     
+    # TODO: see if there are any speedups that can be made here
+    # since this is the slowest part of every generation
+    # (probably will accept some tradeoff here)
     @ignore_warnings(category=ConvergenceWarning)
     def evaluate(self, X, y, model, score_func, seed=None):
         if(self.evaluated):
