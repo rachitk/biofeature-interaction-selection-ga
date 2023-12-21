@@ -60,6 +60,8 @@ class Population:
         empty_individual.evaluated = True
         self.evaluated_individuals[empty_individual.hash] = empty_individual
 
+        # TODO: Allow user to define number of jobs (1 = no parallel)
+
 
     def seed_population(self, num_individuals=1000,
                         initial_sizes=None, seed=None,
@@ -133,7 +135,7 @@ class Population:
                                                    penalty='elasticnet',
                                                    l1_ratios=[.1, .5, .9, .99, 1],
                                                    random_state=model_seed,
-                                                   max_iter=1000)
+                                                   max_iter=100)
         }
 
         score_funcs = {
@@ -155,9 +157,20 @@ class Population:
             del self.current_individuals[dupe_hash]
 
         # Parallelized evaluation scheme
-        # TODO: Allow user to define number of jobs (1 = no parallel)
+        # TODO: Consider finding a way to precompute the subset of X needed for each Individual
+        # so as to avoid having to pass the entire X to each copy of the function
+        # through some reshaping and binning magic (get unique features needed across all
+        # individuals and then index into that subset of features specifically)
+            
+        # Unique indices of the features needed across every individual
+        # (this will probably be basically all the features in earlier generations
+        # but as diversity drops this will be a smaller subset)
+        unique_features_all = np.unique(np.concatenate([indiv.get_unique_chr_features() for indiv in self.current_individuals.values()]))
+        index_map = {feat: i for i, feat in enumerate(unique_features_all)}
+        needed_feat_X = X.take(unique_features_all, axis=-1)
+
         def eval_func_job(indiv, rng_seed):
-            return indiv.evaluate(X, y, clone(model_class), score_func, rng_seed)
+            return indiv.evaluate(needed_feat_X, y, clone(model_class), score_func, rng_seed, index_map)
 
         eval_indivs = [r for r in tqdm(Parallel(return_as='generator', n_jobs=-1, verbose=JL_VERBOSITY)(delayed(eval_func_job)(indiv, rng_seed) 
                                                                         for indiv, rng_seed in 
@@ -166,9 +179,6 @@ class Population:
 
         # Assign (parallelization means operations not done in-place on original objects)
         self.current_individuals = {indiv.hash: indiv for indiv in eval_indivs}
-
-        # for i, indiv in enumerate(self.current_individuals.values()):
-        #     indiv = indiv.evaluate(X, y, clone(model_class), score_func, rng_seeds[i])
 
         self.evaluated_individuals = {**self.current_individuals, **self.evaluated_individuals}
 

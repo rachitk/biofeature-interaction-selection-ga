@@ -2,6 +2,8 @@ from GA.population import Population
 
 import ipdb
 
+import numpy as np
+
 from sklearn.datasets import make_classification
 from sklearn.model_selection import train_test_split
 
@@ -25,8 +27,8 @@ n_samps = 20000
 n_feats = 3000
 n_informative_feats = 10
 n_interactions = 2
-num_start_indiv = 10000
-num_individuals_per_gen = 2000
+num_start_indiv = 5000
+num_individuals_per_gen = 1000
 
 n_generations = 1000
 init_seed = 9
@@ -35,6 +37,14 @@ gen_print_freq = 5
 
 X, y = make_classification(n_samps, n_feats, n_informative=n_informative_feats,
                            random_state=init_seed)
+
+X = X.astype(np.float32)
+y = y.astype(np.float32)
+
+# Note, make_clasification makes the features the same scale by default
+# but a real dataset probably won't be like this and we will need to scale
+# We should only use the training dataset for scaling.
+
 X_train, X_test, y_train, y_test = train_test_split(X, y,
                                                     random_state=init_seed)
 
@@ -60,6 +70,7 @@ for gen_num in tqdm(range(n_generations), desc='Generations'):
         best_pareto_hashes = ga_pop.pareto_individual_hashes
         str_rep = repr(ga_pop.get_evaluated_individuals_from_hash(best_pareto_hashes)).replace('\n', '\n\t')
         print(f"Best Individuals (Generation {gen_num}):\t{str_rep}")
+        print("\n\n-----------------------\n\n")
 
 # Evaluate the final generation of individuals
 ga_pop.evaluate_current_individuals(X, y, 'classification')

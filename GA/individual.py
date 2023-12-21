@@ -45,17 +45,19 @@ class Individual:
     # TODO: see if there are any speedups that can be made here
     # since this is the slowest part of every generation
     # (probably will accept some tradeoff here)
+    # (perhaps compute subset of X and y beforehand and pass in)
     @ignore_warnings(category=ConvergenceWarning)
-    def evaluate(self, X, y, model, score_func, seed=None):
+    def evaluate(self, X, y, model, score_func, seed=None, index_map=None):
         if(self.evaluated):
             return
         
         rng = np.random.default_rng(seed)
         sklearn_seed = rng.integers(RNG_MAX_INT)
 
-        subset_X = self.subset_construct_features(X)
+        subset_X = self.subset_construct_features(X, index_map)
         X_train, X_test, y_train, y_test = train_test_split(subset_X, y,
-                                                            random_state=sklearn_seed)
+                                                            random_state=sklearn_seed,
+                                                            train_size=0.5)
 
         model = model.fit(X_train, y_train)
         y_pred = model.predict(X_test)
@@ -75,8 +77,8 @@ class Individual:
         return self
         
 
-    def subset_construct_features(self, X):
-        X_feats = [chr.subset_data(X) for chr in self.chromosomes]
+    def subset_construct_features(self, X, index_map=None):
+        X_feats = [chr.subset_data(X, index_map) for chr in self.chromosomes]
         return np.concatenate(X_feats, axis=-1)
 
     def get_stats(self):
@@ -91,3 +93,6 @@ class Individual:
             return [chr.features for chr in self.chromosomes]
         else:
             return [chr.features[mask] for chr, mask in zip(self.chromosomes, masks)]
+        
+    def get_unique_chr_features(self):
+        return np.unique(np.concatenate([chr.features.flatten() for chr in self.chromosomes]))
