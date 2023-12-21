@@ -84,7 +84,6 @@ class Population:
 
         rng_seeds = rng.integers(RNG_MAX_INT, size=(num_individuals,))
 
-        # TODO: Parallelize the creation of individuals here
         # Create individuals with the requested chromosomes
         def create_indiv_job(rng_seed):
             rng_seed = np.random.default_rng(rng_seed)
@@ -250,11 +249,6 @@ class Population:
         # (so that when dispatched, we can ensure determinism)
         rng_seeds = rng.integers(RNG_MAX_INT, size=(attempt_num,))
 
-        # TODO: Parallelize the below for creating mated people
-        # Can easily dispatch computations to multiple jobs
-        # Consider moving the below to a function elsewhere 
-        # (and maybe have multiple mating options)
-
         # Parallelized mating scheme
         # TODO: Allow user to define number of jobs (1 = no parallel)
         def mate_func_job(p1, p2, pair_rng):
@@ -276,24 +270,6 @@ class Population:
         child_indivs = [r for r in tqdm(Parallel(return_as='generator', n_jobs=-1, verbose=JL_VERBOSITY)(delayed(mate_func_job)(p1, p2, pair_rng) 
                                                        for (p1, p2), pair_rng in zip(pairings, rng_seeds)),
                                         total=len(pairings), leave=False, desc="Mating")]
-
-        # for (p1, p2), pair_rng in zip(pairings, rng_seeds):
-        #     pair_rng = np.random.default_rng(pair_rng)
-        #     # Get random features from parent 1
-        #     p1_mask = [pair_rng.uniform(size=csize) < probs for csize, probs in 
-        #                zip(p1.get_chr_sizes(), p1.coef_weights)]
-        #     p1_selected = p1.get_chr_features(p1_mask)
-
-        #     # Get random features from parent 2
-        #     p2_mask = [pair_rng.uniform(size=csize) < probs for csize, probs in 
-        #                zip(p2.get_chr_sizes(), p2.coef_weights)]
-        #     p2_selected = p2.get_chr_features(p2_mask)
-
-        #     # Merge to get new individual
-        #     child = (Individual([Chromosome(np.concatenate([p1_chr, p2_chr])) 
-        #                          for p1_chr, p2_chr in zip(p1_selected, p2_selected)]))
-            
-        #     child_indivs[child.hash] = child
 
         child_indivs = {child.hash: child for child in child_indivs}
 
@@ -323,7 +299,6 @@ class Population:
 
         pop_metadata = self.get_population_metadata()
 
-        # TODO: Parallelize the below for creating mutated people
         # Can easily dispatch computations to multiple jobs
         def mutate_func_job(indiv, mutation_fn, mute_rng):
             return mutation_fn(indiv, pop_metadata, mute_rng)
@@ -331,12 +306,6 @@ class Population:
         mutant_indivs = [r for r in tqdm(Parallel(return_as='generator', n_jobs=-1, verbose=JL_VERBOSITY)(delayed(mutate_func_job)(indiv, mutation_fn, mute_rng) 
                                                        for indiv, mutation_fn, mute_rng in zip(originals, mutations, rng_seeds)),
                                         total=len(originals), leave=False, desc="Mutation")]
-
-        # for indiv, mutation_fn, mute_rng in zip(originals, mutations, rng_seeds):
-        #     # Apply mutation to individual
-        #     mutant = mutation_fn(indiv, self.get_population_metadata(),
-        #                          mute_rng)
-        #     mutant_indivs[mutant.hash] = mutant
 
         mutant_indivs = {mutant.hash: mutant for mutant in mutant_indivs}
 

@@ -24,8 +24,8 @@ except ImportError:
 n_samps = 2000
 n_feats = 1000
 n_interactions = 2
-num_start_indiv = 500
-num_individuals_per_gen = 250
+num_start_indiv = 5000
+num_individuals_per_gen = 1000
 
 n_generations = 1000
 init_seed = 9
