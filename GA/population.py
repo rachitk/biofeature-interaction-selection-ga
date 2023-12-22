@@ -133,7 +133,7 @@ class Population:
             'regression': ElasticNetCV(random_state=model_seed), 
             'classification': LogisticRegressionCV(solver='saga', 
                                                    penalty='elasticnet',
-                                                   l1_ratios=[.1, .5, .9, .99, 1],
+                                                   l1_ratios=[.1, .5, .9, 1.],
                                                    random_state=model_seed,
                                                    max_iter=100)
         }
@@ -202,9 +202,9 @@ class Population:
         # Compute proportions of new individuals, mutated, etc.
         # TODO: make these parameters - either of the population
         # or of the function (hyperparameters)
-        new_indiv_num = int(0.2 * num_individuals)
-        mate_num = int(0.3 * num_individuals)
-        mutate_num = int(0.5 * num_individuals)
+        new_indiv_num = int(0.1 * num_individuals)
+        mate_num = int(0.35 * num_individuals)
+        mutate_num = int(0.55 * num_individuals)
         # TODO: atavism_prop = 0.01 
         # atavism here will be adding in random evaluated individuals
         # perhaps also do this if the number of pareto individuals is small
@@ -261,12 +261,13 @@ class Population:
         # TODO: Allow user to define number of jobs (1 = no parallel)
         def mate_func_job(p1, p2, pair_rng):
             pair_rng = np.random.default_rng(pair_rng)
-            # Get random features from parent 1
+
+            # Get random features from parent 1 based on coefficient weights
             p1_mask = [pair_rng.uniform(size=csize) < probs for csize, probs in 
                        zip(p1.get_chr_sizes(), p1.coef_weights)]
             p1_selected = p1.get_chr_features(p1_mask)
 
-            # Get random features from parent 2
+            # Get random features from parent 2 based on coefficient weights
             p2_mask = [pair_rng.uniform(size=csize) < probs for csize, probs in 
                        zip(p2.get_chr_sizes(), p2.coef_weights)]
             p2_selected = p2.get_chr_features(p2_mask)
@@ -287,7 +288,7 @@ class Population:
     # Function to provide new individuals through random mutations
     def mutate_individuals(self, individuals, attempt_num=100, seed=None, 
                            mutate_fns=[add_feature, remove_feature, alter_feature_depth], 
-                           mutate_probs=[0.3, 0.3, 0.4]):
+                           mutate_probs=[0.4, 0.4, 0.2]):
         '''
         individuals: Dict[Tuple[int], Individual]
         returns mutant_indivs: Dict[Tuple[int], Individual]
@@ -311,7 +312,7 @@ class Population:
         def mutate_func_job(indiv, mutation_fn, mute_rng):
             return mutation_fn(indiv, pop_metadata, mute_rng)
 
-        mutant_indivs = [r for r in tqdm(Parallel(return_as='generator', n_jobs=-1, verbose=JL_VERBOSITY)(delayed(mutate_func_job)(indiv, mutation_fn, mute_rng) 
+        mutant_indivs = [r for r in tqdm(Parallel(return_as='generator', n_jobs=1, verbose=JL_VERBOSITY)(delayed(mutate_func_job)(indiv, mutation_fn, mute_rng) 
                                                        for indiv, mutation_fn, mute_rng in zip(originals, mutations, rng_seeds)),
                                         total=len(originals), leave=False, desc="Mutation")]
 

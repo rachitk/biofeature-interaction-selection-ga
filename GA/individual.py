@@ -30,14 +30,16 @@ class Individual:
     def get_scaled_coef_weights(self, X):
         # Absolute value of coefficient scaled by feature mean value
         # using softmax function implemented in numpy
+        # all features scaled relative to each other with no regard
+        # for whether they are in the same chromosome or not
         coef_weights_by_chr = []
-        scaled_weights = np.abs(self.fitted_model.coef_).sum(axis=0) * np.abs(X.mean(axis=0))
+        scaled_weights = softmax(np.abs(self.fitted_model.coef_).sum(axis=0) * np.abs(X.mean(axis=0)))
 
-        # Note, we need to split by chromosome lengths and consider each
-        # separately (features differently than feature interactions)
+        # Note, we need to split by chromosome lengths to make it
+        # easier to index into the scaled_weights array
         prev_len = 0
         for chr_len in self.get_chr_sizes():
-            coef_weights_by_chr.append(softmax(scaled_weights[prev_len:chr_len+prev_len]))
+            coef_weights_by_chr.append(scaled_weights[prev_len:chr_len+prev_len])
             prev_len += chr_len
 
         return coef_weights_by_chr

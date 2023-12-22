@@ -48,14 +48,16 @@ def remove_feature(individual, pop_metadata, rng_seed=None, scale_weight=None):
     rng = np.random.default_rng(rng_seed)
 
     # Prevent selecting empty chromosomes
+    # and compute for each chromosome the coefficient proportions
+    # More likely to select a chromosome with a lower coefficient sum
     nonempty_chrs = [i for i in range(pop_metadata['interaction_num']) if len(individual.chromosomes[i]) > 0]
+    nonempty_selprops = [1-individual.coef_weights[i].sum() for i in nonempty_chrs]
 
-    # Select a random chromosome (TODO: maybe scale by length of chromosome)
-    sel_chr_num = rng.choice(nonempty_chrs)
+    # Select a random chromosome
+    sel_chr_num = rng.choice(nonempty_chrs, p=nonempty_selprops)
     chr_others = [i for i in range(pop_metadata['interaction_num']) if i != sel_chr_num]
     sel_chr = individual.chromosomes[sel_chr_num]
 
-    # TODO: consider only scaling by coefficients and not whether present in other chromosomes
     # Scale removal based on whether a feature is present in the other chromosomes
     # based entirely on presence only - if present in other chromosome, 
     # the feature is more likely to be removed compared to a uniform baseline
@@ -107,8 +109,9 @@ def alter_feature_depth(individual, pop_metadata, rng_seed=None, scale_weight=No
     chr_others = [i for i in range(pop_metadata['interaction_num']) if i not in sel_chr_nums]
 
     # Be more likely to select a feature for depth alteration
-    # if it had a low coefficient in the original dataset
-    src_feat_scale = individual.coef_weights[sel_chr_nums[0]]
+    # if it had a low coefficient in the original dataset relative 
+    # to other features of the same depth
+    src_feat_scale = softmax(individual.coef_weights[sel_chr_nums[0]])
     src_feat_sel_ind = rng.choice(len(src_feat_scale), p=src_feat_scale)
     src_feat_sel = src_chr.features[src_feat_sel_ind]
 

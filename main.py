@@ -27,7 +27,7 @@ n_samps = 20000
 n_feats = 3000
 n_informative_feats = 10
 n_interactions = 2
-num_start_indiv = 5000
+num_start_indiv = 1000
 num_individuals_per_gen = 1000
 
 n_generations = 1000
