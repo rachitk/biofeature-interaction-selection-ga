@@ -38,13 +38,15 @@ except ImportError:
 # (TODO: Maybe move the other GA steps to another class)
 class Population:
     def __init__(self, base_seed=None, num_features=100, interaction_num=2, ):
-        self.current_individuals: Dict[Tuple[int], Individual] = {}
-        self.evaluated_individuals: Dict[Tuple[int], Individual] = {}
-        self.pareto_individual_hashes: List[Tuple[int]] = []
         self.base_seed = base_seed
         self.num_features = num_features
         self.interaction_num = interaction_num
         self.rng = np.random.default_rng(self.base_seed)
+
+        # Properties with individuals
+        self.current_individuals: Dict[Tuple[int], Individual] = {}
+        self.evaluated_individuals: Dict[Tuple[int], Individual] = {}
+        self.pareto_individual_hashes: List[Tuple[int]] = []
 
         # Add individual with no features in any of the chromosome
         # to the set of evaluated individuals to avoid having issues
