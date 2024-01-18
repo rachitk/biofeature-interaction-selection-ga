@@ -31,8 +31,9 @@ n_informative_feats = 10
 # GA parameters
 n_interactions = 2
 num_start_indiv = 50000 #Start with a large number so that we can get a good pareto front
-num_individuals_per_gen = 2000 #Then reduce to a more reasonable number
+num_individuals_per_gen = 5000 #Then reduce to a more reasonable number
 n_generations = 1000
+base_feature_ratio = 0.01
 
 # Misc parameters (including seed)
 init_seed = 9
@@ -56,10 +57,12 @@ X_train, X_test, y_train, y_test = train_test_split(X, y,
                                                     random_state=init_seed)
 
 # Make and initially seed population (outside loop)
+initial_sizes = [int(base_feature_ratio * n_feats/(10**i)) for i in range(n_interactions)]
+
 ga_pop = Population(base_seed=9, num_features=n_feats, 
                     interaction_num=n_interactions)
 ga_pop.seed_population(num_individuals=num_start_indiv,
-                       initial_sizes=[int(n_feats/100),int(n_feats/1000)])
+                       initial_sizes=initial_sizes)
 
 # Evaluate individuals in the population and create new individuals
 # then repeat in a loop to continue producing more individuals
