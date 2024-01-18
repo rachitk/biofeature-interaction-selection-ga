@@ -2,7 +2,7 @@ from typing import Dict, List, Tuple
 
 from .individual import Individual
 from .chromosome import Chromosome
-from .utils import get_pareto_front, RNG_MAX_INT, JL_VERBOSITY
+from .utils import get_pareto_front, RNG_MAX_INT, JL_VERBOSITY, softmax
 from .mutations import add_feature, remove_feature, alter_feature_depth
 
 import numpy as np
@@ -198,42 +198,62 @@ class Population:
         self.pareto_individual_hashes = [check_hashes[i] for i in pareto_best_inds]
 
         return self.pareto_individual_hashes
+    
+
+    def get_atavism_individuals(self, atavism_num=10, seed=None):
+        # Get random individuals in the previous evaluated set
+        # scaled by their respective accuracies (scaled again by the number of individuals to select)
+        rng = np.random.default_rng(seed) if seed is not None else self.rng
+
+        # This can only be run after all individuals in the current generation
+        # have been evaluated (or it will not work as they are not in evaluated individuals)
+        atavism_probs = softmax(atavism_num*np.array([-indiv.stats[1] for indiv in self.evaluated_individuals.values()]))
+        atavism_indivs = rng.choice(list(self.evaluated_individuals.values()), atavism_num, replace=False, p=atavism_probs)
+
+        return atavism_indivs.tolist()
 
 
     def create_new_generation(self, num_individuals=1000):
         # Compute proportions of new individuals, mutated, etc.
         # TODO: make these parameters - either of the population
         # or of the function (hyperparameters)
-        new_indiv_num = int(0.1 * num_individuals)
-        mate_num = int(0.35 * num_individuals)
-        mutate_num = int(0.55 * num_individuals)
-        # TODO: atavism_prop = 0.01 
-        # atavism here will be adding in random evaluated individuals
-        # perhaps also do this if the number of pareto individuals is small
-        # relative to the number of new individuals to be made (to reintroduce
-        # diversity into the population)
+        new_indiv_num = int(0.10 * num_individuals)
+        mate_num = int(0.40 * num_individuals)
+        mutate_num = int(0.50 * num_individuals)
+        
+        # Atavism ratio is defined as ratio of atavistic individuals to pareto individuals
+        # atavism here will be adding in randomly selected evaluated individuals for mating/mutation
         # Note that we shouldn't introduce the empty individual here
+        # Can set atavism ratio to 0 to disable this
+        atavism_ratio = 10.0
 
         # Create some random individuals to include
-        new_rand_indivs = self.seed_population(num_individuals=new_indiv_num, add_now=False, seed=self.rng)
+        new_rand_indivs = self.seed_population(num_individuals=new_indiv_num, add_now=False, seed=self.rng) 
 
         # Get the top individuals in the population
         # and then randomly mate/mutate them all
         pareto_indiv_hashes = self.get_pareto_best_individuals()
         pareto_indivs = [self.evaluated_individuals[pareto_hash] 
                          for pareto_hash in pareto_indiv_hashes]
+        
+        # Get some people scaled based on accuracy to be parents
+        # Accuracy is scaled by the number of people to select, so that
+        # accuracy is more valued if there are more people to bring back
+        atavism_num = min(int(len(pareto_indivs) * atavism_ratio), 100)
+        atavism_indivs = self.get_atavism_individuals(atavism_num=atavism_num, seed=self.rng)
 
-        # Perform mating of best pareto individuals 
-        # TODO: maybe mix in some random evaluated individuals
+        # Combined pareto individuals and atavism individuals for parents
+        parent_indivs = pareto_indivs + atavism_indivs
+
+        # Perform mating of best pareto individuals (and atavism individuals)
         # Will try to make mate_num number of children
         # but may produce some nonunique children who will be merged
-        child_indivs = self.mate_individuals(pareto_indivs, attempt_num=mate_num, seed=self.rng)
+        child_indivs = self.mate_individuals(parent_indivs, attempt_num=mate_num, seed=self.rng)
 
-        # Randomly mutate best pareto individuals
-        # TODO: maybe mix in some random evaluated individuals
+        # Randomly mutate best pareto individuals (and atavism individuals)
         # Will try to make mutate_num number of mutants
-        # but may again make nonunique mutants that will be merged
-        mutant_indivs = self.mutate_individuals(pareto_indivs, attempt_num=mutate_num, seed=self.rng)
+        # but may make nonunique mutants that will be merged
+        mutant_indivs = self.mutate_individuals(parent_indivs, attempt_num=mutate_num, seed=self.rng)
 
         # Set the current generation to the new set of individuals
         self.current_individuals = {**new_rand_indivs,

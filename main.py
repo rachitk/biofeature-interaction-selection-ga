@@ -23,7 +23,7 @@ except ImportError:
     tqdm_avail = False
     print("NOTE: TQDM not available. No progress bars will be printed.\n")
 
-n_samps = 20000
+n_samps = 200
 n_feats = 3000
 n_informative_feats = 10
 n_interactions = 2

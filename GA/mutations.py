@@ -54,7 +54,7 @@ def remove_feature(individual, pop_metadata, rng_seed=None, scale_weight=None):
     nonempty_selprops = [1-individual.coef_weights[i].sum() for i in nonempty_chrs]
 
     # Select a random chromosome
-    sel_chr_num = rng.choice(nonempty_chrs, p=nonempty_selprops)
+    sel_chr_num = rng.choice(nonempty_chrs, p=softmax(np.array(nonempty_selprops)))
     chr_others = [i for i in range(pop_metadata['interaction_num']) if i != sel_chr_num]
     sel_chr = individual.chromosomes[sel_chr_num]
 
