@@ -72,12 +72,15 @@ class Population:
                         add_now=True):
         '''Adds individuals to the population based on requested parameters'''
 
-        # By default use initial sizes 1% of the total number of features
-        # and then decrease based on interaction number by a factor of 10
+        # By default use initial sizes of the total number of features
+        # and then decrease based on interaction number by a scale factor of 10
         if initial_sizes is None:
-            base_i = 2 # exponent to start at, of 1/10, which in this case is (1/10)^2 = 1/100
-            # So would be: 1%, 0.1%, 0.01%, and so on
-            initial_sizes = [int(self.num_features/(10**(i+base_i))) for i in range(self.interaction_num)]
+            # TODO: make base ratio a parameter
+            # TODO: consider making the scale factor a parameter as well
+            base_ratio = 0.01 # base value to start at (and each one will be scaled 1/10 from then on)
+            # So if the base ratio is 0.1, then the initial sizes would be:
+            # [num_features/10, num_features/100, num_features/1000, ...]
+            initial_sizes = [int(base_ratio * self.num_features/(10**i)) for i in range(self.interaction_num)]
 
         # If a single value is passed, then assume we want to use that value
         # for every single depth of interaction
@@ -235,8 +238,8 @@ class Population:
         # TODO: make these parameters - either of the population
         # or of the function (hyperparameters)
         new_indiv_num = int(0.10 * num_individuals)
-        mate_num = int(0.30 * num_individuals)
-        mutate_num = int(0.60 * num_individuals)
+        mate_num = int(0.40 * num_individuals)
+        mutate_num = int(0.50 * num_individuals)
         
         # Atavism ratio is defined as ratio of atavistic individuals to pareto individuals
         # atavism here will be adding in randomly selected evaluated individuals for mating/mutation
