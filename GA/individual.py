@@ -4,6 +4,7 @@ from .chromosome import Chromosome
 from .utils import softmax, RNG_MAX_INT
 
 from sklearn.model_selection import train_test_split
+from sklearn.base import clone
 import numpy as np
 
 from sklearn.utils._testing import ignore_warnings
@@ -33,7 +34,8 @@ class Individual:
         # all features scaled relative to each other with no regard
         # for whether they are in the same chromosome or not
         coef_weights_by_chr = []
-        scaled_weights = softmax(np.abs(self.fitted_model.coef_).sum(axis=0) * np.abs(X.mean(axis=0)))
+        with np.errstate(divide='ignore'):
+            scaled_weights = softmax(np.log(np.abs(self.fitted_model.coef_).sum(axis=0) * np.abs(X.mean(axis=0))))
 
         # Note, we need to split by chromosome lengths to make it
         # easier to index into the scaled_weights array
@@ -47,26 +49,49 @@ class Individual:
     # TODO: see if there are any speedups that can be made here
     # since this is the slowest part of every generation
     # (probably will accept some tradeoff here)
-    # (perhaps compute subset of X and y beforehand and pass in)
     @ignore_warnings(category=ConvergenceWarning)
-    def evaluate(self, X, y, model, score_func, seed=None, index_map=None):
+    def evaluate(self, X, y, model, score_func, seed=None, index_map=None, num_eval=5):
         if(self.evaluated):
             return
         
         rng = np.random.default_rng(seed)
-        sklearn_seed = rng.integers(RNG_MAX_INT)
+        sklearn_seeds = rng.integers(RNG_MAX_INT, size=num_eval)
 
         subset_X = self.subset_construct_features(X, index_map)
-        X_train, X_test, y_train, y_test = train_test_split(subset_X, y,
-                                                            random_state=sklearn_seed,
-                                                            train_size=0.5)
 
-        model = model.fit(X_train, y_train)
-        y_pred = model.predict(X_test)
+        # Fitting/evaluating the model N times and taking the average performance
+        # rather than just doing so once, to minimize noise-related issues
+        # (though one can just set num_eval=1 to disable this)
+        model_scores = [None] * num_eval
+        best_model = None # use the coefficient weights from the best model
+        best_score = -np.inf
 
-        self.score = score_func(y_test, y_pred)
-        self.fitted_model = model
+        for i, sklearn_seed in enumerate(sklearn_seeds):
+            cmodel = clone(model)
+            # TODO: see if we can replace the model seed here
+            # this may not actually be needed since we are already
+            # using a different seed for each train/test split
+            X_train, X_test, y_train, y_test = train_test_split(subset_X, y,
+                                                                random_state=sklearn_seed,
+                                                                train_size=0.5)
+
+            cmodel = cmodel.fit(X_train, y_train)
+            y_pred = cmodel.predict(X_test)
+
+            model_scores[i] = score_func(y_test, y_pred)
+
+            if(model_scores[i] > best_score):
+                best_model = cmodel
+                best_score = model_scores[i]
+
+        self.score = np.mean(model_scores)
+        self.fitted_model = best_model
         self.evaluated = True
+
+        # Use the coefficient weights from the BEST model
+        # since while this isn't necessarily a good representation of
+        # the feature importance, it does give a good representation of
+        # which ones might be most useful for the GA to use
         self.coef_weights = self.get_scaled_coef_weights(subset_X)
 
         # Note, this is currently broken if we use MSE as the score function
