@@ -23,20 +23,27 @@ except ImportError:
     tqdm_avail = False
     print("NOTE: TQDM not available. No progress bars will be printed.\n")
 
+# Make classification parameters
 n_samps = 200
 n_feats = 3000
 n_informative_feats = 10
-n_interactions = 2
-num_start_indiv = 1000
-num_individuals_per_gen = 1000
 
+# GA parameters
+n_interactions = 2
+num_start_indiv = 50000 #Start with a large number so that we can get a good pareto front
+num_individuals_per_gen = 2000 #Then reduce to a more reasonable number
 n_generations = 1000
+
+# Misc parameters (including seed)
 init_seed = 9
 gen_print_freq = 5
 
-
+# Without shuffling, we know that the first n_informative + n_redundant + n_repeated
+# features are theoretically important 
+# 0 : n_informative_feats + n_redundant + n_repeated
+# n_redundant = 2 by default, n_repeated = 0 by default
 X, y = make_classification(n_samps, n_feats, n_informative=n_informative_feats,
-                           random_state=init_seed)
+                           random_state=init_seed, shuffle=False)
 
 X = X.astype(np.float32)
 y = y.astype(np.float32)
@@ -52,7 +59,7 @@ X_train, X_test, y_train, y_test = train_test_split(X, y,
 ga_pop = Population(base_seed=9, num_features=n_feats, 
                     interaction_num=n_interactions)
 ga_pop.seed_population(num_individuals=num_start_indiv,
-                       initial_sizes=[int(n_feats/10),int(n_feats/100)])
+                       initial_sizes=[int(n_feats/100),int(n_feats/1000)])
 
 # Evaluate individuals in the population and create new individuals
 # then repeat in a loop to continue producing more individuals

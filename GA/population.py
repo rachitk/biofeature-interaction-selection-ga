@@ -37,10 +37,11 @@ except ImportError:
 # Performs the GA steps (mutating, mating, etc.)
 # (TODO: Maybe move the other GA steps to another class)
 class Population:
-    def __init__(self, base_seed=None, num_features=100, interaction_num=2, ):
+    def __init__(self, base_seed=None, num_features=100, interaction_num=2, eval_num=5):
         self.base_seed = base_seed
         self.num_features = num_features
         self.interaction_num = interaction_num
+        self.eval_num = eval_num
         self.rng = np.random.default_rng(self.base_seed)
 
         # Properties with individuals
@@ -55,9 +56,10 @@ class Population:
                                         for chr_num in range(self.interaction_num)])
         
         # Set its stats to be the worst possible
-        # with chromosome lengths of infinity and score of infinity
+        # with chromosome lengths of infinity and score of 0.0
         # empty_individual.stats = np.array([np.inf for _ in range(interaction_num+1)])
-        empty_individual.stats = np.array([np.inf, np.inf])
+        # empty_individual.stats[-1] = 0.0
+        empty_individual.stats = np.array([np.inf, 0.0])
         empty_individual.coef_weights = [np.array([]) for _ in range(interaction_num)]
         empty_individual.evaluated = True
         self.evaluated_individuals[empty_individual.hash] = empty_individual
@@ -70,15 +72,24 @@ class Population:
                         add_now=True):
         '''Adds individuals to the population based on requested parameters'''
 
+        # By default use initial sizes 1% of the total number of features
+        # and then decrease based on interaction number by a factor of 10
         if initial_sizes is None:
-            initial_sizes = [int(self.num_features/10), int(self.num_features/100)]
+            base_i = 2 # exponent to start at, of 1/10, which in this case is (1/10)^2 = 1/100
+            # So would be: 1%, 0.1%, 0.01%, and so on
+            initial_sizes = [int(self.num_features/(10**(i+base_i))) for i in range(self.interaction_num)]
 
+        # If a single value is passed, then assume we want to use that value
+        # for every single depth of interaction
         elif isinstance(initial_sizes, int):
             initial_sizes = [initial_sizes for _ in range(self.interaction_num)]
 
+        # If a list is passed, then it needs to be the same length as the number
+        # of interactions or this won't work
         elif len(initial_sizes) != self.interaction_num:
             raise ValueError(f"Number of initial sizes passed to population was {len(initial_sizes)}, "
                              f"but expected {self.interaction_num} or a single integer!")
+
 
         # RNG of this seed is based on the passed seed value only if one is passed
         # otherwise, will use the base population RNG (which may have progressed since instantiation)
@@ -131,6 +142,7 @@ class Population:
         model_seed = rng.integers(RNG_MAX_INT)
 
         # TODO: decide between ElasticNet and ElasticNetCV for regression
+        # TODO: move these to somewhere else (utils?) and import
         model_classes = {
             'regression': ElasticNetCV(random_state=model_seed), 
             'classification': LogisticRegressionCV(solver='saga', 
@@ -166,15 +178,17 @@ class Population:
             
         # Unique indices of the features needed across every individual
         # (this will probably be basically all the features in earlier generations
-        # but as diversity drops this will be a smaller subset)
+        # but as diversity drops this will be a much smaller subset)
         unique_features_all = np.unique(np.concatenate([indiv.get_unique_chr_features() for indiv in self.current_individuals.values()]))
         index_map = {feat: i for i, feat in enumerate(unique_features_all)}
         needed_feat_X = X.take(unique_features_all, axis=-1)
 
-        def eval_func_job(indiv, rng_seed):
-            return indiv.evaluate(needed_feat_X, y, clone(model_class), score_func, rng_seed, index_map)
+        curr_eval_num = self.eval_num
 
-        eval_indivs = [r for r in tqdm(Parallel(return_as='generator', n_jobs=-1, verbose=JL_VERBOSITY)(delayed(eval_func_job)(indiv, rng_seed) 
+        def eval_func_job(indiv, rng_seed, eval_num=5):
+            return indiv.evaluate(needed_feat_X, y, clone(model_class), score_func, rng_seed, index_map, eval_num)
+
+        eval_indivs = [r for r in tqdm(Parallel(return_as='generator', n_jobs=-1, verbose=JL_VERBOSITY)(delayed(eval_func_job)(indiv, rng_seed, curr_eval_num) 
                                                                         for indiv, rng_seed in 
                                                                         zip(self.current_individuals.values(), rng_seeds)), 
                                         total=len(self.current_individuals), leave=False, desc="Evaluation")]
@@ -202,13 +216,16 @@ class Population:
 
     def get_atavism_individuals(self, atavism_num=10, seed=None):
         # Get random individuals in the previous evaluated set
-        # scaled by their respective accuracies (scaled again by the number of individuals to select)
+        # scaled by their respective accuracies
         rng = np.random.default_rng(seed) if seed is not None else self.rng
 
         # This can only be run after all individuals in the current generation
         # have been evaluated (or it will not work as they are not in evaluated individuals)
-        atavism_probs = softmax(atavism_num*np.array([-indiv.stats[1] for indiv in self.evaluated_individuals.values()]))
-        atavism_indivs = rng.choice(list(self.evaluated_individuals.values()), atavism_num, replace=False, p=atavism_probs)
+        with np.errstate(divide='ignore'):
+            # Negative because the GA tries to minimize later on via Pareto, 
+            # but we want to scale based on maximizing here
+            atavism_probs = softmax(np.log([-indiv.stats[-1] for indiv in self.evaluated_individuals.values()]))
+            atavism_indivs = rng.choice(list(self.evaluated_individuals.values()), atavism_num, replace=False, p=atavism_probs)
 
         return atavism_indivs.tolist()
 
@@ -218,14 +235,14 @@ class Population:
         # TODO: make these parameters - either of the population
         # or of the function (hyperparameters)
         new_indiv_num = int(0.10 * num_individuals)
-        mate_num = int(0.40 * num_individuals)
-        mutate_num = int(0.50 * num_individuals)
+        mate_num = int(0.30 * num_individuals)
+        mutate_num = int(0.60 * num_individuals)
         
         # Atavism ratio is defined as ratio of atavistic individuals to pareto individuals
         # atavism here will be adding in randomly selected evaluated individuals for mating/mutation
         # Note that we shouldn't introduce the empty individual here
         # Can set atavism ratio to 0 to disable this
-        atavism_ratio = 10.0
+        atavism_ratio = 5.0
 
         # Create some random individuals to include
         new_rand_indivs = self.seed_population(num_individuals=new_indiv_num, add_now=False, seed=self.rng) 
@@ -284,13 +301,15 @@ class Population:
         def mate_func_job(p1, p2, pair_rng):
             pair_rng = np.random.default_rng(pair_rng)
 
-            # Get random features from parent 1 based on coefficient weights
-            p1_mask = [pair_rng.uniform(size=csize) < probs for csize, probs in 
+            # Get random features from parent 1 half-based on coefficient weights
+            # plus a uniform distribution to allow for some random chance
+            p1_mask = [pair_rng.uniform(size=csize) < (probs/2 + 0.5) for csize, probs in  
                        zip(p1.get_chr_sizes(), p1.coef_weights)]
             p1_selected = p1.get_chr_features(p1_mask)
 
-            # Get random features from parent 2 based on coefficient weights
-            p2_mask = [pair_rng.uniform(size=csize) < probs for csize, probs in 
+            # Get random features from parent 2 half-based on coefficient weights
+            # plus a uniform distribution to allow for some random chance
+            p2_mask = [pair_rng.uniform(size=csize) < (probs/2 + 0.5) for csize, probs in 
                        zip(p2.get_chr_sizes(), p2.coef_weights)]
             p2_selected = p2.get_chr_features(p2_mask)
 
@@ -334,7 +353,7 @@ class Population:
         def mutate_func_job(indiv, mutation_fn, mute_rng):
             return mutation_fn(indiv, pop_metadata, mute_rng)
 
-        mutant_indivs = [r for r in tqdm(Parallel(return_as='generator', n_jobs=1, verbose=JL_VERBOSITY)(delayed(mutate_func_job)(indiv, mutation_fn, mute_rng) 
+        mutant_indivs = [r for r in tqdm(Parallel(return_as='generator', n_jobs=-1, verbose=JL_VERBOSITY)(delayed(mutate_func_job)(indiv, mutation_fn, mute_rng) 
                                                        for indiv, mutation_fn, mute_rng in zip(originals, mutations, rng_seeds)),
                                         total=len(originals), leave=False, desc="Mutation")]
 

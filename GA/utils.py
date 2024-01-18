@@ -48,8 +48,18 @@ def get_pareto_front(costs, return_mask = False):
 
 def softmax(x):
     # Softmax implementation in numpy
+    # Note that this assumes the input is log-scaled
     if(x.size == 0):
         return np.array([])
+    
+    max_val = x.max()
+
+    if(np.isneginf(max_val)):
+        # If all values are -inf, then we can't use the below
+        # so just return a uniform distribution
+        # which is what the below would return anyways
+        # if the subtraction worked
+        return np.ones_like(x) / x.size
     
     numer = np.exp(x - x.max())
     return numer / numer.sum()
