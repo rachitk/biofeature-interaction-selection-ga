@@ -3,7 +3,7 @@ from typing import List
 from .chromosome import Chromosome
 from .utils import softmax, RNG_MAX_INT
 
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import KFold
 from sklearn.base import clone
 import numpy as np
 
@@ -59,8 +59,6 @@ class Individual:
             return
         
         rng = np.random.default_rng(seed)
-        sklearn_seeds = rng.integers(RNG_MAX_INT, size=num_eval)
-
         subset_X = self.subset_construct_features(X, index_map)
 
         # Fitting/evaluating the model N times and taking the average performance
@@ -70,14 +68,15 @@ class Individual:
         best_model = None # use the coefficient weights from the best model
         best_score = -np.inf
 
-        for i, sklearn_seed in enumerate(sklearn_seeds):
+        # Use KFold to get the number of split evaluations
+        sklearn_seed = rng.integers(RNG_MAX_INT)
+        kf = KFold(n_splits=num_eval, shuffle=True, random_state=sklearn_seed)
+
+        for i, (train_inds, test_inds) in enumerate(kf.split(subset_X, y)):
             cmodel = clone(model)
-            # TODO: see if we can replace the model seed here
-            # this may not actually be needed since we are already
-            # using a different seed for each train/test split
-            X_train, X_test, y_train, y_test = train_test_split(subset_X, y,
-                                                                random_state=sklearn_seed,
-                                                                train_size=0.5)
+
+            X_train, X_test = subset_X[train_inds], subset_X[test_inds]
+            y_train, y_test = y[train_inds], y[test_inds]
 
             cmodel = cmodel.fit(X_train, y_train)
             y_pred = cmodel.predict(X_test)

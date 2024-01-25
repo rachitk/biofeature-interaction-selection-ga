@@ -7,6 +7,7 @@ import pandas as pd
 
 from sklearn.datasets import make_classification
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 
 try:
     from tqdm import tqdm
@@ -26,8 +27,8 @@ except ImportError:
 
 # GA parameters
 n_interactions = 2
-num_start_indiv = 2000 #Start with a large number so that we can get a good pareto front
-num_individuals_per_gen = 500 #Then reduce to a more reasonable number
+num_start_indiv = 5000 #Start with a large number so that we can get a good pareto front
+num_individuals_per_gen = 1000 #Then reduce to a more reasonable number
 n_generations = 10
 base_feature_ratio = 0.05
 
@@ -88,16 +89,21 @@ else:
     X_train = X_train.values
     X_test = X_test.values
 
+    # Scale the data here using sklearn StandardScaler
+    # fit on the training dataset and then apply to the testing dataset
+    # (needed because we use regularization in the models we use to evaluate)
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(X_train)
+    X_test = scaler.transform(X_test)
+
     n_feats = X_train.shape[1]
+    
 
 # Make and initially seed population (outside loop)
-initial_sizes = [int(base_feature_ratio * n_feats/(10**i)) for i in range(n_interactions)]
-
 ga_pop = Population(base_seed=9, num_features=n_feats, 
                     interaction_num=n_interactions,
                     problem_type='classification')
-ga_pop.seed_population(num_individuals=num_start_indiv,
-                       initial_sizes=initial_sizes)
+ga_pop.seed_population(num_individuals=num_start_indiv)
 
 # Evaluate individuals in the population and create new individuals
 # then repeat in a loop to continue producing more individuals
@@ -136,5 +142,6 @@ top_indivs_eval_scores = np.array(ga_pop.reevaluate_individuals_from_hashes(uniq
 # Filter out individuals that performed very poorly on the testing dataset
 # that is, they are likely to have overfit the broader training dataset and 
 # are not representative of the features useful to the actual problem
+
 
 ipdb.set_trace()

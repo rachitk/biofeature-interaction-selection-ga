@@ -37,11 +37,13 @@ except ImportError:
 # (TODO: Maybe move the other GA steps to another class)
 class Population:
     def __init__(self, base_seed=None, num_features=100, interaction_num=2, eval_num=5,
-                 problem_type='regression'):
+                 problem_type='classification',
+                 base_feature_ratio=0.05):
         self.base_seed = base_seed
         self.num_features = num_features
         self.interaction_num = interaction_num
         self.eval_num = eval_num
+        self.base_feature_ratio = base_feature_ratio
         self.rng = np.random.default_rng(self.base_seed)
 
         # Properties with individuals
@@ -75,6 +77,9 @@ class Population:
         if(self.model_class is None):
             raise ValueError(f"{self.problem_type} not supported. Only supports `classification` or `regression`.")
 
+        # Check if evaluation number is >1 (if not, throw error since KFold breaks)
+        if(self.eval_num < 2):
+            raise ValueError(f"Evaluation number must be >=2, but was {self.eval_num}.")
 
     def seed_population(self, num_individuals=1000,
                         initial_sizes=None, seed=None,
@@ -84,12 +89,9 @@ class Population:
         # By default use initial sizes of the total number of features
         # and then decrease based on interaction number by a scale factor of 10
         if initial_sizes is None:
-            # TODO: make base ratio a parameter
-            # TODO: consider making the scale factor a parameter as well
-            base_ratio = 0.01 # base value to start at (and each one will be scaled 1/10 from then on)
-            # So if the base ratio is 0.1, then the initial sizes would be:
-            # [num_features/10, num_features/100, num_features/1000, ...]
-            initial_sizes = [int(base_ratio * self.num_features/(10**i)) for i in range(self.interaction_num)]
+            # So if the base ratio is 0.05, then the initial sizes would be:
+            # [0.05*num_features, 0.05*num_features/10, 0.05*num_features/100, ...]
+            initial_sizes = [int(self.base_feature_ratio * self.num_features/(10**i)) for i in range(self.interaction_num)]
 
         # If a single value is passed, then assume we want to use that value
         # for every single depth of interaction
@@ -101,7 +103,6 @@ class Population:
         elif len(initial_sizes) != self.interaction_num:
             raise ValueError(f"Number of initial sizes passed to population was {len(initial_sizes)}, "
                              f"but expected {self.interaction_num} or a single integer!")
-
 
         # RNG of this seed is based on the passed seed value only if one is passed
         # otherwise, will use the base population RNG (which may have progressed since instantiation)
@@ -408,9 +409,11 @@ class Population:
         index_map = {feat: i for i, feat in enumerate(unique_features_all)}
         needed_feat_X = X.take(unique_features_all, axis=-1)
 
+        score_func = self.score_func
+
         def reeval_func_job(indiv):
             pred_y = indiv.apply_model(needed_feat_X, index_map)
-            return self.score_func(y, pred_y)
+            return score_func(y, pred_y)
         
         out_reeval_scores = [r for r in tqdm(Parallel(return_as='generator', n_jobs=-1, verbose=JL_VERBOSITY)(delayed(reeval_func_job)(indiv) 
                                                                         for indiv in hash_indivs), 

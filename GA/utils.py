@@ -28,6 +28,8 @@ MODEL_CLASSES = {
                                             max_iter=100)
 }
 
+# Consider f1 score or balanced accuracy for classification
+# instead of roc auc score
 SCORE_FUNCS = {
     'regression': mean_squared_error, 
     'classification': roc_auc_score
