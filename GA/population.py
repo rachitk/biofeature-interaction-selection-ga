@@ -3,12 +3,11 @@ from typing import Dict, List, Tuple
 from .individual import Individual
 from .chromosome import Chromosome
 from .utils import get_pareto_front, RNG_MAX_INT, JL_VERBOSITY, softmax
+from .utils import MODEL_CLASSES, SCORE_FUNCS
 from .mutations import add_feature, remove_feature, alter_feature_depth
 
 import numpy as np
-from sklearn.linear_model import ElasticNetCV, LogisticRegressionCV
 from sklearn.base import clone
-from sklearn.metrics import roc_auc_score, mean_squared_error
 
 from joblib import Parallel, delayed
 
@@ -37,7 +36,8 @@ except ImportError:
 # Performs the GA steps (mutating, mating, etc.)
 # (TODO: Maybe move the other GA steps to another class)
 class Population:
-    def __init__(self, base_seed=None, num_features=100, interaction_num=2, eval_num=5):
+    def __init__(self, base_seed=None, num_features=100, interaction_num=2, eval_num=5,
+                 problem_type='regression'):
         self.base_seed = base_seed
         self.num_features = num_features
         self.interaction_num = interaction_num
@@ -65,6 +65,15 @@ class Population:
         self.evaluated_individuals[empty_individual.hash] = empty_individual
 
         # TODO: Allow user to define number of jobs (1 = no parallel)
+
+        # Get problem type and model class/score func that goes with it
+        # Note these have an UNSET seed, which needs to be set later
+        self.problem_type = problem_type
+        self.model_class = MODEL_CLASSES.get(problem_type, None)
+        self.score_func = SCORE_FUNCS.get(problem_type, None)
+
+        if(self.model_class is None):
+            raise ValueError(f"{self.problem_type} not supported. Only supports `classification` or `regression`.")
 
 
     def seed_population(self, num_individuals=1000,
@@ -134,7 +143,7 @@ class Population:
         # self.current_individuals = new_individuals | self.current_individuals
 
 
-    def evaluate_current_individuals(self, X, y, problem_type='regression', seed=None):
+    def evaluate_current_individuals(self, X, y, seed=None):
         '''
         Evaluates individuals within the current set in the population 
         using an ElasticNet for accuracy and based on the number of features
@@ -144,29 +153,14 @@ class Population:
         rng = np.random.default_rng(seed) if seed is not None else self.rng
         model_seed = rng.integers(RNG_MAX_INT)
 
-        # TODO: decide between ElasticNet and ElasticNetCV for regression
-        # TODO: move these to somewhere else (utils?) and import
-        model_classes = {
-            'regression': ElasticNetCV(random_state=model_seed), 
-            'classification': LogisticRegressionCV(solver='saga', 
-                                                   penalty='elasticnet',
-                                                   l1_ratios=[.1, .5, .9, 1.],
-                                                   random_state=model_seed,
-                                                   max_iter=100)
-        }
+        model_class = clone(self.model_class)
+        score_func = self.score_func
 
-        score_funcs = {
-            'regression': mean_squared_error, 
-            'classification': roc_auc_score
-        }
+        # Apply model seed to this version of the model
+        model_class.set_params(random_state=model_seed)
 
-        model_class = model_classes.get(problem_type, None)
-        score_func = score_funcs.get(problem_type, None)
-
+        # Seeds for each of the evaluations (for splits, not for models)
         rng_seeds = rng.integers(RNG_MAX_INT, size=(len(self.current_individuals),))
-
-        if(model_class is None):
-            raise ValueError(f"{problem_type} not supported. Only supports `classification` or `regression`.")
 
         # Replace already-evaluated individuals with their evaluated versions
         dupe_hashes = self.current_individuals.keys() & self.evaluated_individuals.keys()
@@ -202,7 +196,10 @@ class Population:
         self.evaluated_individuals = {**self.current_individuals, **self.evaluated_individuals}
 
     
-    def get_pareto_best_individuals(self):
+    def determine_pareto_best_individuals(self):
+        # Get the individuals that are nondominated by Pareto standards
+        # as the "pareto best" individuals that make up the Pareto front
+
         # This can only be run after all individuals in the current generation
         # have been evaluated (or it will not work as they are not in evaluated individuals)
         check_hashes = self.pareto_individual_hashes + list(self.current_individuals.keys())
@@ -217,9 +214,28 @@ class Population:
         return self.pareto_individual_hashes
     
 
+    def get_topk_scoring_individuals(self, k=100):
+        # Get the top k scoring individuals (regardless of length)
+        # for any downstream purpose (typically evaluating on the testing dataset)
+
+        # This can only be run after all individuals in the current generation
+        # have been evaluated (or it will not work as they are not in evaluated individuals)
+        eval_ind_keys = list(self.evaluated_individuals.keys())
+        stats = np.stack([self.evaluated_individuals[hash].get_stats() for hash in eval_ind_keys])
+
+        # Argpartition returns the top k elements in any order
+        # Note that we effectively sort by the last column (score) and then get the top k from that
+        # (remember that score is negative here, so it will be the bottom k technically)
+        top_indices = stats[:,-1].argpartition(-k)[:k]
+        topk_indiv_hashes = [eval_ind_keys[i] for i in top_indices]
+
+        return topk_indiv_hashes
+    
+
     def get_atavism_individuals(self, atavism_num=10, seed=None):
         # Get random individuals in the previous evaluated set
         # scaled by their respective accuracies
+        # TODO: also scale by lengths? Uniform baseline with accuracies on top of that?
         rng = np.random.default_rng(seed) if seed is not None else self.rng
 
         # This can only be run after all individuals in the current generation
@@ -252,7 +268,7 @@ class Population:
 
         # Get the top individuals in the population
         # and then randomly mate/mutate them all
-        pareto_indiv_hashes = self.get_pareto_best_individuals()
+        pareto_indiv_hashes = self.determine_pareto_best_individuals()
         pareto_indivs = [self.evaluated_individuals[pareto_hash] 
                          for pareto_hash in pareto_indiv_hashes]
         
@@ -378,3 +394,27 @@ class Population:
     # Function that takes in a set of hashes and gets those individuals
     def get_evaluated_individuals_from_hash(self, hashes):
         return [self.evaluated_individuals[hash_val] for hash_val in hashes]
+    
+
+    # Function that takes in a set of hashes and evaluates those individuals again 
+    # on a new dataset, using their best models/coefficients
+    def reevaluate_individuals_from_hashes(self, hashes, X, y):
+        hash_indivs = self.get_evaluated_individuals_from_hash(hashes)
+
+        # Unique indices of the features needed across every individual
+        # (this will probably be basically all the features in earlier generations
+        # but as diversity drops this will be a much smaller subset)
+        unique_features_all = np.unique(np.concatenate([indiv.get_unique_chr_features() for indiv in hash_indivs]))
+        index_map = {feat: i for i, feat in enumerate(unique_features_all)}
+        needed_feat_X = X.take(unique_features_all, axis=-1)
+
+        def reeval_func_job(indiv):
+            pred_y = indiv.apply_model(needed_feat_X, index_map)
+            return self.score_func(y, pred_y)
+        
+        out_reeval_scores = [r for r in tqdm(Parallel(return_as='generator', n_jobs=-1, verbose=JL_VERBOSITY)(delayed(reeval_func_job)(indiv) 
+                                                                        for indiv in hash_indivs), 
+                                        total=len(hash_indivs), leave=False, desc="Reevaluation")]
+        
+        return out_reeval_scores
+

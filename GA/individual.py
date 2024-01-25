@@ -18,7 +18,7 @@ import ipdb
 class Individual:
     def __init__(self, chromosomes: List[Chromosome] = []):
         self.chromosomes = chromosomes
-        self.hash: tuple[str] = tuple(chr.hash for chr in self.chromosomes)
+        self.hash: tuple[int] = tuple(chr.hash for chr in self.chromosomes)
         self.stats = None
         self.evaluated = False
 
@@ -29,6 +29,10 @@ class Individual:
         return sum(self.get_chr_sizes())
     
     def get_scaled_coef_weights(self, X):
+        # TODO: change to use SelectFromModel instead
+        # of the feature coefficients (especially since
+        # coef_ isn't available for all models)
+
         # Absolute value of coefficient scaled by feature mean value
         # using softmax function implemented in numpy
         # all features scaled relative to each other with no regard
@@ -102,7 +106,15 @@ class Individual:
                                -self.score])
         
         return self
+    
+    def apply_model(self, X, index_map=None):
+        # Apply (trained/evaluated) model to a new dataset
+        # (e.g. the test set) and return predictions
+
+        if(not self.evaluated):
+            raise ValueError("Trying to reevaluate an individual that hasn't been evaluated/trained yet!")
         
+        return self.fitted_model.predict(self.subset_construct_features(X, index_map))
 
     def subset_construct_features(self, X, index_map=None):
         X_feats = [chr.subset_data(X, index_map) for chr in self.chromosomes]

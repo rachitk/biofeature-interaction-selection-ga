@@ -1,5 +1,8 @@
 import numpy as np
 
+from sklearn.linear_model import ElasticNetCV, LogisticRegressionCV
+from sklearn.metrics import roc_auc_score, mean_squared_error
+
 import ipdb
 
 
@@ -14,6 +17,22 @@ except ImportError:
     tqdm_avail = False
     
 JL_VERBOSITY = not tqdm_avail
+
+# Select model based on problem types
+# TODO: decide between ElasticNet and ElasticNetCV for regression
+MODEL_CLASSES = {
+    'regression': ElasticNetCV(), 
+    'classification': LogisticRegressionCV(solver='saga', 
+                                            penalty='elasticnet',
+                                            l1_ratios=[.1, .5, .9, 1.],
+                                            max_iter=100)
+}
+
+SCORE_FUNCS = {
+    'regression': mean_squared_error, 
+    'classification': roc_auc_score
+}
+
 
 # Code below modified from 
 # https://stackoverflow.com/questions/32791911/fast-calculation-of-pareto-front-in-python
