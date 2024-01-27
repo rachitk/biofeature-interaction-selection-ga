@@ -27,14 +27,17 @@ except ImportError:
 
 # GA parameters
 n_interactions = 2
-num_start_indiv = 5000 #Start with a large number so that we can get a good pareto front
-num_individuals_per_gen = 1000 #Then reduce to a more reasonable number
-n_generations = 10
-base_feature_ratio = 0.05
+num_start_indiv = 50000 #Start with a large number so that we can get a good pareto front
+num_individuals_per_gen = 2000 #Then reduce to a more reasonable number
+n_generations = 100
+base_feature_ratio = 0.01
+feature_scaling_drop = 1.0
 
 # Misc parameters (including seed)
 init_seed = 99
 gen_print_freq = 5
+percentile_perf_diff_cutoff = 10
+critical_feat_percentile = 10
 
 
 # Data params
@@ -97,43 +100,47 @@ else:
     X_test = scaler.transform(X_test)
 
     n_feats = X_train.shape[1]
-    
+
 
 # Make and initially seed population (outside loop)
 ga_pop = Population(base_seed=9, num_features=n_feats, 
                     interaction_num=n_interactions,
-                    problem_type='classification')
+                    problem_type='classification',
+                    base_feature_ratio=base_feature_ratio,
+                    feature_scaling_drop=feature_scaling_drop)
 ga_pop.seed_population(num_individuals=num_start_indiv)
 
-# Evaluate individuals in the population and create new individuals
+# Evaluate zeroth generation (of many more individuals than each generation)
+ga_pop.evaluate_current_individuals(X_train, y_train)
+
+# Create new individuals and then evaluate
 # then repeat in a loop to continue producing more individuals
 for gen_num in tqdm(range(n_generations), desc='Generations'):
     if(not tqdm_avail):
         print(f"Starting Generation {gen_num+1} / {n_generations} ... ", end='', flush=True)
-    
-    ga_pop.evaluate_current_individuals(X_train, y_train)
+
     ga_pop.create_new_generation(num_individuals_per_gen)
-    
-    if(not tqdm_avail):
-        print(f"Completed!", flush=True)
+    ga_pop.evaluate_current_individuals(X_train, y_train)
 
     if gen_num % gen_print_freq == 0:
         best_pareto_hashes = ga_pop.pareto_individual_hashes
         str_rep = repr(ga_pop.get_evaluated_individuals_from_hash(best_pareto_hashes)).replace('\n', '\n\t')
         print(f"Best Individuals (Generation {gen_num}):\t{str_rep}")
         print("\n\n-----------------------\n\n")
+    
+    if(not tqdm_avail):
+        print(f"Completed!", flush=True)
 
-# Evaluate the final generation of individuals
-ga_pop.evaluate_current_individuals(X_train, y_train)
 
-# Get the top 1000 performing individuals on the training dataset
+# Get the top 10000 performing individuals on the training dataset
 # and the best pareto individuals (represented by hashes)
-topk_scorer_hashes = ga_pop.get_topk_scoring_individuals(1000)
+topk_scorer_hashes = ga_pop.get_topk_scoring_individuals(10000)
 best_pareto_hashes = ga_pop.pareto_individual_hashes
 unique_indiv_hashlist = list(set(topk_scorer_hashes + best_pareto_hashes))
 
 # Get the original scores of the individuals for later comparison
-top_indivs_train_scores = np.array([indiv.score for indiv in ga_pop.get_evaluated_individuals_from_hash(unique_indiv_hashlist)])
+top_indivs = ga_pop.get_evaluated_individuals_from_hash(unique_indiv_hashlist)
+top_indivs_train_scores = np.array([indiv.score for indiv in top_indivs])
 
 # Reevaluate top k and best pareto individuals on the testing dataset
 # (Note, this returns a LIST of scores, so we do need to convert it to an np.ndarray)
@@ -142,6 +149,29 @@ top_indivs_eval_scores = np.array(ga_pop.reevaluate_individuals_from_hashes(uniq
 # Filter out individuals that performed very poorly on the testing dataset
 # that is, they are likely to have overfit the broader training dataset and 
 # are not representative of the features useful to the actual problem
+score_diff = top_indivs_train_scores - top_indivs_eval_scores
+keep_top_notoverfit = np.flatnonzero(score_diff < np.percentile(score_diff, percentile_perf_diff_cutoff))
+keep_top_indivs = [top_indivs[i] for i in keep_top_notoverfit]
 
+chr_feats = [indiv.get_chr_features() for indiv in keep_top_indivs]
+
+for depth_int in range(n_interactions):
+    depth_chr_feats = np.concatenate([chr[depth_int] for chr in chr_feats])
+
+    feat_used, feat_counts = np.unique(depth_chr_feats, return_counts=True, axis=0)
+    feat_prop = feat_counts / len(keep_top_indivs)
+
+    critical_feat_ind = np.flatnonzero(feat_prop > np.percentile(feat_prop, critical_feat_percentile))
+    critical_feat_ind = critical_feat_ind[np.argsort(feat_prop[critical_feat_ind])]
+    critical_feats_num = feat_used[critical_feat_ind]
+
+    critical_feats = np.array(col_ind_name_map)[critical_feats_num]
+
+    critical_feat_props = feat_prop[critical_feat_ind]
+
+    for i, feat in enumerate(critical_feats_num):
+        print(f"{feat} :: {critical_feats[i]} :: {critical_feat_props[i]}")
+
+    ipdb.set_trace()
 
 ipdb.set_trace()

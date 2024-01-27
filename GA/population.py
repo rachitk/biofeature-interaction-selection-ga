@@ -38,12 +38,15 @@ except ImportError:
 class Population:
     def __init__(self, base_seed=None, num_features=100, interaction_num=2, eval_num=5,
                  problem_type='classification',
-                 base_feature_ratio=0.05):
+                 base_feature_ratio=0.05,
+                 feature_scaling_drop=1.0):
         self.base_seed = base_seed
         self.num_features = num_features
         self.interaction_num = interaction_num
         self.eval_num = eval_num
         self.base_feature_ratio = base_feature_ratio
+        self.feature_scaling_drop = feature_scaling_drop
+
         self.rng = np.random.default_rng(self.base_seed)
 
         # Properties with individuals
@@ -87,11 +90,11 @@ class Population:
         '''Adds individuals to the population based on requested parameters'''
 
         # By default use initial sizes of the total number of features
-        # and then decrease based on interaction number by a scale factor of 10
+        # and then decrease based on interaction number by a scale factor of self.feature_scaling_drop
         if initial_sizes is None:
             # So if the base ratio is 0.05, then the initial sizes would be:
-            # [0.05*num_features, 0.05*num_features/10, 0.05*num_features/100, ...]
-            initial_sizes = [int(self.base_feature_ratio * self.num_features/(10**i)) for i in range(self.interaction_num)]
+            # [0.05*num_features, 0.05*num_features/self.feature_scaling_drop, 0.05*num_features/self.feature_scaling_drop^2, ...]
+            initial_sizes = [int(self.base_feature_ratio * self.num_features/(self.feature_scaling_drop**i)) for i in range(self.interaction_num)]
 
         # If a single value is passed, then assume we want to use that value
         # for every single depth of interaction
@@ -196,6 +199,9 @@ class Population:
 
         self.evaluated_individuals = {**self.current_individuals, **self.evaluated_individuals}
 
+        # Compute the current pareto front
+        self.determine_pareto_best_individuals()
+
     
     def determine_pareto_best_individuals(self):
         # Get the individuals that are nondominated by Pareto standards
@@ -262,14 +268,14 @@ class Population:
         # atavism here will be adding in randomly selected evaluated individuals for mating/mutation
         # Note that we shouldn't introduce the empty individual here
         # Can set atavism ratio to 0 to disable this
-        atavism_ratio = 5.0
+        atavism_ratio = 1.0
 
         # Create some random individuals to include
         new_rand_indivs = self.seed_population(num_individuals=new_indiv_num, add_now=False, seed=self.rng) 
 
         # Get the top individuals in the population
         # and then randomly mate/mutate them all
-        pareto_indiv_hashes = self.determine_pareto_best_individuals()
+        pareto_indiv_hashes = self.pareto_individual_hashes
         pareto_indivs = [self.evaluated_individuals[pareto_hash] 
                          for pareto_hash in pareto_indiv_hashes]
         
