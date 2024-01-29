@@ -47,6 +47,7 @@ class Population:
         self.base_feature_ratio = base_feature_ratio
         self.feature_scaling_drop = feature_scaling_drop
 
+        self.generation_data: List[Dict[str, Tuple[str]]] = []
         self.rng = np.random.default_rng(self.base_seed)
 
         # Properties with individuals
@@ -65,9 +66,11 @@ class Population:
         # empty_individual.stats = np.array([np.inf for _ in range(interaction_num+1)])
         # empty_individual.stats[-1] = 0.0
         empty_individual.stats = np.array([np.inf, 0.0])
+        empty_individual.score = 0.0
         empty_individual.coef_weights = [np.array([]) for _ in range(interaction_num)]
         empty_individual.evaluated = True
         self.evaluated_individuals[empty_individual.hash] = empty_individual
+        self.empty_individual_hash = empty_individual.hash
 
         # TODO: Allow user to define number of jobs (1 = no parallel)
 
@@ -83,6 +86,7 @@ class Population:
         # Check if evaluation number is >1 (if not, throw error since KFold breaks)
         if(self.eval_num < 2):
             raise ValueError(f"Evaluation number must be >=2, but was {self.eval_num}.")
+
 
     def seed_population(self, num_individuals=1000,
                         initial_sizes=None, seed=None,
@@ -179,7 +183,7 @@ class Population:
             
         # Unique indices of the features needed across every individual
         # (this will probably be basically all the features in earlier generations
-        # but as diversity drops this will be a much smaller subset)
+        # but as diversity drops this will hopefully be a [much?] smaller subset)
         unique_features_all = np.unique(np.concatenate([indiv.get_unique_chr_features() for indiv in self.current_individuals.values()]))
         index_map = {feat: i for i, feat in enumerate(unique_features_all)}
         needed_feat_X = X.take(unique_features_all, axis=-1)
@@ -201,6 +205,15 @@ class Population:
 
         # Compute the current pareto front
         self.determine_pareto_best_individuals()
+
+        # Store hashes of the current individuals and pareto best individuals
+        # in the generation data
+        this_gen_data = {
+            'current': list(self.current_individuals.keys()),
+            'pareto': self.pareto_individual_hashes
+        }
+
+        self.generation_data.append(this_gen_data)
 
     
     def determine_pareto_best_individuals(self):
@@ -224,6 +237,10 @@ class Population:
     def get_topk_scoring_individuals(self, k=100):
         # Get the top k scoring individuals (regardless of length)
         # for any downstream purpose (typically evaluating on the testing dataset)
+
+        if k > len(self.evaluated_individuals):
+            k = len(self.evaluated_individuals)
+            print(f"Warning: k was set to {k} but only {len(self.evaluated_individuals)} individuals have been evaluated.")
 
         # This can only be run after all individuals in the current generation
         # have been evaluated (or it will not work as they are not in evaluated individuals)

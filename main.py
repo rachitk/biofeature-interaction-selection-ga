@@ -4,6 +4,7 @@ import ipdb
 
 import numpy as np
 import pandas as pd
+import os
 
 from sklearn.datasets import make_classification
 from sklearn.model_selection import train_test_split
@@ -29,12 +30,12 @@ except ImportError:
 n_interactions = 2
 num_start_indiv = 50000 #Start with a large number so that we can get a good pareto front
 num_individuals_per_gen = 2000 #Then reduce to a more reasonable number
-n_generations = 100
-base_feature_ratio = 0.01
+n_generations = 1000
+base_feature_ratio = 0.001
 feature_scaling_drop = 1.0
 
 # Misc parameters (including seed)
-init_seed = 99
+init_seed = 9
 gen_print_freq = 5
 percentile_perf_diff_cutoff = 10
 critical_feat_percentile = 10
@@ -42,6 +43,13 @@ critical_feat_percentile = 10
 
 # Data params
 use_fake = False
+out_dir_prefix = 'out'
+
+
+# Define out directory
+out_dir = f'{out_dir_prefix}_ninter{n_interactions}_nstart{num_start_indiv}_ngen{n_generations}_nindiv{num_individuals_per_gen}'
+out_dir += f'_basefeat{base_feature_ratio}_featdrop{feature_scaling_drop}_seed{init_seed}'
+os.makedirs(out_dir, exist_ok=True)
 
 if(use_fake):
     # Make classification parameters
@@ -132,15 +140,29 @@ for gen_num in tqdm(range(n_generations), desc='Generations'):
         print(f"Completed!", flush=True)
 
 
-# Get the top 10000 performing individuals on the training dataset
+# Get the top 100000 performing individuals on the training dataset
 # and the best pareto individuals (represented by hashes)
-topk_scorer_hashes = ga_pop.get_topk_scoring_individuals(10000)
+# (technically could get every evaluated individual, period)
+# (but this ensures computational tractability when reevaluating)
+    
+# TODO: consider only getting individuals from the last 5-10 generations
+# instead of the top individuals over all generations
+
+topk_scorer_hashes = list(ga_pop.get_topk_scoring_individuals(100000))
 best_pareto_hashes = ga_pop.pareto_individual_hashes
 unique_indiv_hashlist = list(set(topk_scorer_hashes + best_pareto_hashes))
 
+# Remove the empty individual (if present)
+try:
+    empty_hash = ga_pop.empty_individual_hash
+    if(empty_hash in unique_indiv_hashlist):
+        unique_indiv_hashlist.remove(empty_hash)
+except:
+    pass
+
 # Get the original scores of the individuals for later comparison
 top_indivs = ga_pop.get_evaluated_individuals_from_hash(unique_indiv_hashlist)
-top_indivs_train_scores = np.array([indiv.score for indiv in top_indivs])
+top_indivs_train_scores = np.array([-indiv.stats[-1] for indiv in top_indivs])
 
 # Reevaluate top k and best pareto individuals on the testing dataset
 # (Note, this returns a LIST of scores, so we do need to convert it to an np.ndarray)
@@ -154,23 +176,47 @@ keep_top_notoverfit = np.flatnonzero(score_diff < np.percentile(score_diff, perc
 keep_top_indivs = [top_indivs[i] for i in keep_top_notoverfit]
 
 chr_feats = [indiv.get_chr_features() for indiv in keep_top_indivs]
+chr_feat_coeffs = [indiv.coef_weights for indiv in keep_top_indivs]
+
+ipdb.set_trace()
 
 for depth_int in range(n_interactions):
+
     depth_chr_feats = np.concatenate([chr[depth_int] for chr in chr_feats])
+    depth_chr_coeffs = np.concatenate([chr[depth_int] for chr in chr_feat_coeffs])
 
-    feat_used, feat_counts = np.unique(depth_chr_feats, return_counts=True, axis=0)
-    feat_prop = feat_counts / len(keep_top_indivs)
+    # Remove ones where equal to 0 entirely (or very close to 0)
+    unused_feats = np.isclose(depth_chr_coeffs, 0.0)
+    depth_chr_feats = depth_chr_feats[~unused_feats]
+    depth_chr_coeffs = depth_chr_coeffs[~unused_feats]
 
-    critical_feat_ind = np.flatnonzero(feat_prop > np.percentile(feat_prop, critical_feat_percentile))
-    critical_feat_ind = critical_feat_ind[np.argsort(feat_prop[critical_feat_ind])]
+    feat_used, feat_inv, feat_counts = np.unique(depth_chr_feats, return_inverse=True, return_counts=True, axis=0)
+
+    feat_coef_sums = np.zeros(len(feat_used), dtype=np.float32)
+    np.add.at(feat_coef_sums, feat_inv, depth_chr_coeffs)
+
+    feat_names = np.array(col_ind_name_map)[feat_used]
+    nominal_feat_prop = feat_counts / len(keep_top_indivs)
+    len_feat_prop = feat_coef_sums / len(keep_top_indivs)
+    sum_feat_prop = feat_coef_sums / feat_coef_sums.sum()
+
+    critical_feat_ind = np.flatnonzero(feat_coef_sums > np.percentile(feat_coef_sums, critical_feat_percentile))
+    critical_feat_ind = critical_feat_ind[np.argsort(feat_coef_sums[critical_feat_ind])]
     critical_feats_num = feat_used[critical_feat_ind]
-
     critical_feats = np.array(col_ind_name_map)[critical_feats_num]
 
-    critical_feat_props = feat_prop[critical_feat_ind]
+    critical_len_feat_props = len_feat_prop[critical_feat_ind]
+    critical_sum_feat_props = sum_feat_prop[critical_feat_ind]
+    critical_nominal_feat_props = nominal_feat_prop[critical_feat_ind]
 
     for i, feat in enumerate(critical_feats_num):
-        print(f"{feat} :: {critical_feats[i]} :: {critical_feat_props[i]}")
+        print(f"{feat} :: {critical_feats[i]} :: {critical_nominal_feat_props[i]:.4f} :: {critical_len_feat_props[i]:.4f} :: {critical_sum_feat_props[i]:.4f}")
+
+    # Print output results to CSV
+    out_data = pd.DataFrame({'Feature_nums': feat_used.tolist(), 'Feature_names': feat_names.tolist(), 'Nominal_usage_rate': nominal_feat_prop, 'Avg_coef_over_indiv': len_feat_prop, 'Avg_coef_over_sum_coef': sum_feat_prop, 'Total_feat_coef_sum': feat_coef_sums})
+    out_data = out_data.sort_values(by=['Avg_coef_over_sum_coef'], ascending=False)
+    csv_out_name = os.path.join(out_dir, f'feature_usage_depth{depth_int}.csv')
+    out_data.to_csv(csv_out_name, index=False)
 
     ipdb.set_trace()
 

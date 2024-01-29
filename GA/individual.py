@@ -33,13 +33,16 @@ class Individual:
         # of the feature coefficients (especially since
         # coef_ isn't available for all models)
 
-        # Absolute value of coefficient scaled by feature mean value
-        # using softmax function implemented in numpy
+        # Absolute value of coefficient 
         # all features scaled relative to each other with no regard
         # for whether they are in the same chromosome or not
+
+        # Do not scale the coefficients by the feature means (did previously)
+        # especially since the features are normalized to N(0,1) and so their means are close to 0
+        # and so this will downplay their importances broadly
         coef_weights_by_chr = []
         with np.errstate(divide='ignore'):
-            scaled_weights = softmax(np.log(np.abs(self.fitted_model.coef_).sum(axis=0) * np.abs(X.mean(axis=0))))
+            scaled_weights = softmax(np.log(np.abs(self.fitted_model.coef_).sum(axis=0)))
 
         # Note, we need to split by chromosome lengths to make it
         # easier to index into the scaled_weights array

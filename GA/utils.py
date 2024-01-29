@@ -41,6 +41,7 @@ SCORE_FUNCS = {
 # TODO: allow a threshold/cutoff for considering dominated
 # since accuracy is a bit stochastic based on the train/test/val split
 # (or maybe synchronize the train/test/val split entirely)
+# alternatively, maybe return ranks of some kind
 def get_pareto_front(costs, return_mask = False):
     """
     Find the pareto-efficient points
