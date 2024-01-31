@@ -116,16 +116,18 @@ class Population:
         rng = np.random.default_rng(seed) if seed is not None else self.rng
 
         rng_seeds = rng.integers(RNG_MAX_INT, size=(num_individuals,))
+        int_num = self.interaction_num
+        n_feat = self.num_features
 
         # Create individuals with the requested chromosomes
         def create_indiv_job(rng_seed):
             rng_seed = np.random.default_rng(rng_seed)
-            return Individual([Chromosome(rng_seed.integers(self.num_features, 
+            return Individual([Chromosome(rng_seed.integers(n_feat, 
                                               size=(initial_sizes[chr_num], chr_num+1))) 
-                                              for chr_num in range(self.interaction_num)])
+                                              for chr_num in range(int_num)])
         
         # Use shared memory here to avoid serializing the original object
-        indiv_list = [r for r in tqdm(Parallel(require='sharedmem', return_as='generator', n_jobs=-1, verbose=JL_VERBOSITY)
+        indiv_list = [r for r in tqdm(Parallel(return_as='generator', n_jobs=-1, verbose=JL_VERBOSITY)
                                       (delayed(create_indiv_job)(rng_seed) for rng_seed in rng_seeds),
                                         total=num_individuals, leave=False, desc="Seeding")]
         
@@ -189,14 +191,16 @@ class Population:
         needed_feat_X = X.take(unique_features_all, axis=-1)
 
         curr_eval_num = self.eval_num
+        curr_indiv_num = len(self.current_individuals)
+        curr_indivs = self.current_individuals.values()
 
         def eval_func_job(indiv, rng_seed, eval_num=5):
             return indiv.evaluate(needed_feat_X, y, clone(model_class), score_func, rng_seed, index_map, eval_num)
 
         eval_indivs = [r for r in tqdm(Parallel(return_as='generator', n_jobs=-1, verbose=JL_VERBOSITY)(delayed(eval_func_job)(indiv, rng_seed, curr_eval_num) 
                                                                         for indiv, rng_seed in 
-                                                                        zip(self.current_individuals.values(), rng_seeds)), 
-                                        total=len(self.current_individuals), leave=False, desc="Evaluation")]
+                                                                        zip(curr_indivs, rng_seeds)), 
+                                        total=curr_indiv_num, leave=False, desc="Evaluation")]
 
         # Assign (parallelization means operations not done in-place on original objects)
         self.current_individuals = {indiv.hash: indiv for indiv in eval_indivs}
@@ -239,8 +243,9 @@ class Population:
         # for any downstream purpose (typically evaluating on the testing dataset)
 
         if k > len(self.evaluated_individuals):
+            print(f"Warning: k was set to {k} but only {len(self.evaluated_individuals)} total individuals have been evaluated in this population. "
+                  "k will be set to the number of evaluated individuals instead.")
             k = len(self.evaluated_individuals)
-            print(f"Warning: k was set to {k} but only {len(self.evaluated_individuals)} individuals have been evaluated.")
 
         # This can only be run after all individuals in the current generation
         # have been evaluated (or it will not work as they are not in evaluated individuals)

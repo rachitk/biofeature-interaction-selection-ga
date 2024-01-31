@@ -10,6 +10,8 @@ from sklearn.datasets import make_classification
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
+from synthetic_data import make_binary_classification_with_interaction
+
 try:
     from tqdm import tqdm
     def print(*args, **kwargs):
@@ -30,12 +32,12 @@ except ImportError:
 n_interactions = 2
 num_start_indiv = 50000 #Start with a large number so that we can get a good pareto front
 num_individuals_per_gen = 2000 #Then reduce to a more reasonable number
-n_generations = 1000
-base_feature_ratio = 0.001
+n_generations = 100
+base_feature_ratio = 0.01
 feature_scaling_drop = 1.0
 
 # Misc parameters (including seed)
-init_seed = 9
+init_seed = 99999
 gen_print_freq = 5
 percentile_perf_diff_cutoff = 10
 critical_feat_percentile = 10
@@ -43,45 +45,53 @@ critical_feat_percentile = 10
 
 # Data params
 use_fake = False
-out_dir_prefix = 'out'
+out_dir_prefix = 'fixed_score/out'
 
 
 # Define out directory
 out_dir = f'{out_dir_prefix}_ninter{n_interactions}_nstart{num_start_indiv}_ngen{n_generations}_nindiv{num_individuals_per_gen}'
-out_dir += f'_basefeat{base_feature_ratio}_featdrop{feature_scaling_drop}_seed{init_seed}'
+out_dir += f'_basefeat{base_feature_ratio}_featdrop{feature_scaling_drop}_seed{init_seed}_data{"Synth" if use_fake else "Real"}'
 os.makedirs(out_dir, exist_ok=True)
 
 if(use_fake):
     # Make classification parameters
     # (fake data)
     n_samps = 200
-    n_feats = 3000
+    n_feats = 1000
     n_informative_feats = 50
-    n_redundant_feats = 10
-    n_repeated_feats = 0
+    n_interaction_feats = 10
+    n_int_from_info = 5
 
-    # Without shuffling, we know that the first n_informative + n_redundant + n_repeated
+    # Without shuffling, we know that the first n_informative
     # features are theoretically important 
-    # 0 : n_informative_feats + n_redundant + n_repeated
-    # n_redundant = 2 by default, n_repeated = 0 by default
-    X, y = make_classification(n_samps, n_feats, 
-                            n_informative=n_informative_feats,
-                            n_redundant=n_redundant_feats,
-                            n_repeated=n_repeated_feats,
-                            random_state=init_seed, shuffle=False)
+    # 0 : n_informative_feats 
+    # and the interactions are returned separately
+    X, y, important_interactions = make_binary_classification_with_interaction(n_samples=n_samps, n_features=n_feats,
+                                                       n_informative=n_informative_feats,
+                                                       n_interactions=n_interaction_feats,
+                                                       n_interactions_from_informative=n_int_from_info,
+                                                       random_state=init_seed)
 
     X = X.astype(np.float32)
     y = y.astype(np.float32)
 
-    # Note, make_clasification makes the features the same scale by default
+    # Note, make_classification makes the features the same scale by default
     # but a real dataset probably won't be like this and we will need to scale
     # We should only use the training dataset for scaling.
     X_train, X_test, y_train, y_test = train_test_split(X, y,
                                                         random_state=init_seed)
+    
+    print("Expected interactions are: ")
+    print(important_interactions)
+    print("\n")
+
+    col_ind_name_map = np.arange(n_feats)    
 
 else:
     # Using real data
     # Need to define X_train, X_test, y_train, y_test
+    # train_x_file = './data/AD_training_dataset_ALL_log2.txt'
+    # test_x_file = './data/AD_testing_dataset_ALL_log2.txt'
     train_x_file = './data/AD_training_dataset_log2.txt'
     test_x_file = './data/AD_testing_dataset_log2.txt'
     all_y_file = './data/AD_demographics.csv'
@@ -110,6 +120,11 @@ else:
     n_feats = X_train.shape[1]
 
 
+# Report
+print(f"Results output to: {out_dir}")
+print(f"Number of features: {n_feats}")
+print(f'Number of train/test samples: {len(y_train)} / {len(y_test)}')
+
 # Make and initially seed population (outside loop)
 ga_pop = Population(base_seed=9, num_features=n_feats, 
                     interaction_num=n_interactions,
@@ -120,6 +135,11 @@ ga_pop.seed_population(num_individuals=num_start_indiv)
 
 # Evaluate zeroth generation (of many more individuals than each generation)
 ga_pop.evaluate_current_individuals(X_train, y_train)
+
+best_pareto_hashes = ga_pop.pareto_individual_hashes
+str_rep = repr(ga_pop.get_evaluated_individuals_from_hash(best_pareto_hashes)).replace('\n', '\n\t')
+print(f"Best Individuals (Initial):\t{str_rep}")
+print("\n\n-----------------------\n\n")
 
 # Create new individuals and then evaluate
 # then repeat in a loop to continue producing more individuals
@@ -178,8 +198,6 @@ keep_top_indivs = [top_indivs[i] for i in keep_top_notoverfit]
 chr_feats = [indiv.get_chr_features() for indiv in keep_top_indivs]
 chr_feat_coeffs = [indiv.coef_weights for indiv in keep_top_indivs]
 
-ipdb.set_trace()
-
 for depth_int in range(n_interactions):
 
     depth_chr_feats = np.concatenate([chr[depth_int] for chr in chr_feats])
@@ -218,6 +236,10 @@ for depth_int in range(n_interactions):
     csv_out_name = os.path.join(out_dir, f'feature_usage_depth{depth_int}.csv')
     out_data.to_csv(csv_out_name, index=False)
 
-    ipdb.set_trace()
+# Report (again)
+print("\n")
+print(f"Results output to: {out_dir}")
+print(f"Number of features: {n_feats}")
+print(f'Number of train/test samples: {len(y_train)} / {len(y_test)}')
 
 ipdb.set_trace()

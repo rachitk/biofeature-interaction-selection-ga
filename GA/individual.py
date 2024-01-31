@@ -82,8 +82,11 @@ class Individual:
             y_train, y_test = y[train_inds], y[test_inds]
 
             cmodel = cmodel.fit(X_train, y_train)
-            y_pred = cmodel.predict(X_test)
-
+            # TODO: support regression problems by using predict
+            # since predict_proba is only present for classification problems
+            # (this also only works for binary classification, so consider changing)
+            # score-func signature to be model, X_test, y_pred as replacement
+            y_pred = cmodel.predict_proba(X_test)[:,1]
             model_scores[i] = score_func(y_test, y_pred)
 
             if(model_scores[i] > best_score):
