@@ -24,6 +24,6 @@ All of these dependencies can be installed using ```pip``` or ```conda```.
 
 We've included a sample script ```main.py``` that imports GASIF and runs it as required for reference.
 
-You should edit the data paths on [lines 95-97(https://github.com/rachitk/biofeature-interaction-selection-ga/blob/main/main.py#L95-L97) to run GASIF with your own data
+You should edit the data paths on [lines 95-97](https://github.com/rachitk/biofeature-interaction-selection-ga/blob/main/main.py#L95-L97) to run GASIF with your own data
 
 You can also edit the running options on [lines 31-48](https://github.com/rachitk/biofeature-interaction-selection-ga/blob/main/main.py#L31-L48) to run GASIF with different options. 
